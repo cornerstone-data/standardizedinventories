@@ -3,7 +3,7 @@
 # coding=utf-8
 """
 Imports eGRID data and processes to Standardized EPA output format.
-Uses the eGRID data files from EPA.
+Uses eGRID data files from EPA (2014-2023) or Cornerstone on Zenodo (2024+).
 This file requires parameters be passed like:
 
     Option -Y Year
@@ -14,7 +14,7 @@ Option:
     C - Download and process data for validation
 
 Year:
-    2014, 2016, 2018-2023
+    2014, 2016, 2018-2024
 """
 
 import pandas as pd
@@ -40,6 +40,22 @@ _config = config()['databases']['eGRID']
 EXT_DIR = 'eGRID Data Files'
 OUTPUT_PATH = paths.local_path / EXT_DIR
 eGRID_DATA_DIR = DATA_PATH / 'eGRID'
+
+# 2024+ Cornerstone metric workbook (GJ, metric tons, kg)
+METRIC_TON_KG = 1000
+GJ_MJ = 1000
+
+
+def uses_metric_units(year):
+    """Return True when the year uses the metric eGRID workbook."""
+    return _config[year].get('units') == 'metric'
+
+
+def egrid_conversion_factors(year):
+    """Return conversion factors to StEWI units (kg, MJ) for flow amounts."""
+    if uses_metric_units(year):
+        return METRIC_TON_KG, 1.0, GJ_MJ, MWh_MJ
+    return USton_kg, lb_kg, MMBtu_MJ, MWh_MJ
 
 
 def imp_fields(filename, year):
@@ -80,7 +96,7 @@ def egrid_unit_convert(value, factor):
 
 
 def download_eGRID(year):
-    """Download eGRID files from EPA website."""
+    """Download eGRID workbook from EPA or Cornerstone (Zenodo)."""
     log.info(f'downloading eGRID data for {year}')
 
     download_url = _config[year]['download_url']
@@ -155,15 +171,19 @@ def generate_eGRID_files(year):
     flowbyfac_fields = filter_fields('eGRID_required_fields.csv', 'flowbyfac_fields')
 
     flowbyfac_prelim = egrid[flowbyfac_fields]
+    tons_factor, small_mass_factor, heat_factor, elec_factor = egrid_conversion_factors(
+        year)
     conversion = []
     conversion.append(flowbyfac_prelim[['FacilityID', 'Plant primary fuel']])
     conversion.append(egrid_unit_convert(
-        flowbyfac_prelim[['Nitrogen oxides', 'Sulfur dioxide', 'Carbon dioxide']], USton_kg))
+        flowbyfac_prelim[['Nitrogen oxides', 'Sulfur dioxide', 'Carbon dioxide']],
+        tons_factor))
     conversion.append(egrid_unit_convert(
-        flowbyfac_prelim[['Methane', 'Nitrous oxide']], lb_kg))
+        flowbyfac_prelim[['Methane', 'Nitrous oxide']], small_mass_factor))
     conversion.append(egrid_unit_convert(
-        flowbyfac_prelim[['Heat', 'Steam']], MMBtu_MJ))
-    conversion.append(egrid_unit_convert(flowbyfac_prelim[['Electricity']], MWh_MJ))
+        flowbyfac_prelim[['Heat', 'Steam']], heat_factor))
+    conversion.append(egrid_unit_convert(flowbyfac_prelim[['Electricity']],
+                                          elec_factor))
     flowbyfac_stacked = pd.concat(conversion, axis=1)
     # Create flowbyfac
     flowbyfac = pd.melt(flowbyfac_stacked,
@@ -296,6 +316,16 @@ def validate_eGRID(year, flowbyfac):
     egrid_national_totals = unit_convert(
         egrid_national_totals, 'FlowAmount', 'Unit', 'MWh',
         MWh_MJ, 'FlowAmount')
+    if uses_metric_units(year):
+        egrid_national_totals = unit_convert(
+            egrid_national_totals, 'FlowAmount', 'Unit', 'metric tons',
+            METRIC_TON_KG, 'FlowAmount')
+        egrid_national_totals = unit_convert(
+            egrid_national_totals, 'FlowAmount', 'Unit', 'kg',
+            1.0, 'FlowAmount')
+        egrid_national_totals = unit_convert(
+            egrid_national_totals, 'FlowAmount', 'Unit', 'GJ',
+            GJ_MJ, 'FlowAmount')
     # drop old unit
     egrid_national_totals.drop('Unit', axis=1, inplace=True)
     validation_result = validate_inventory(flowbyfac, egrid_national_totals,
@@ -341,16 +371,28 @@ def generate_national_totals(year):
                                     usecols=['FlowName', 'Compartment'])
     us_totals = us_totals.merge(flow_compartments, how='left', on='FlowName')
 
-    us_totals.loc[(us_totals['FlowName'] == 'Carbon dioxide') |
-                  (us_totals['FlowName'] == 'Sulfur dioxide') |
-                  (us_totals['FlowName'] == 'Nitrogen oxides'),
-                  'Unit'] = 'tons'
-    us_totals.loc[(us_totals['FlowName'] == 'Methane') |
-                  (us_totals['FlowName'] == 'Nitrous oxide'),
-                  'Unit'] = 'lbs'
-    us_totals.loc[(us_totals['FlowName'] == 'Heat') |
-                  (us_totals['FlowName'] == 'Steam'),
-                  'Unit'] = 'MMBtu'
+    if uses_metric_units(year):
+        us_totals.loc[(us_totals['FlowName'] == 'Carbon dioxide') |
+                      (us_totals['FlowName'] == 'Sulfur dioxide') |
+                      (us_totals['FlowName'] == 'Nitrogen oxides'),
+                      'Unit'] = 'metric tons'
+        us_totals.loc[(us_totals['FlowName'] == 'Methane') |
+                      (us_totals['FlowName'] == 'Nitrous oxide'),
+                      'Unit'] = 'kg'
+        us_totals.loc[(us_totals['FlowName'] == 'Heat') |
+                      (us_totals['FlowName'] == 'Steam'),
+                      'Unit'] = 'GJ'
+    else:
+        us_totals.loc[(us_totals['FlowName'] == 'Carbon dioxide') |
+                      (us_totals['FlowName'] == 'Sulfur dioxide') |
+                      (us_totals['FlowName'] == 'Nitrogen oxides'),
+                      'Unit'] = 'tons'
+        us_totals.loc[(us_totals['FlowName'] == 'Methane') |
+                      (us_totals['FlowName'] == 'Nitrous oxide'),
+                      'Unit'] = 'lbs'
+        us_totals.loc[(us_totals['FlowName'] == 'Heat') |
+                      (us_totals['FlowName'] == 'Steam'),
+                      'Unit'] = 'MMBtu'
     us_totals.loc[(us_totals['FlowName'] == 'Electricity'),
                   'Unit'] = 'MWh'
     log.info(f'saving eGRID_{year}_NationalTotals.csv to {DATA_PATH}')

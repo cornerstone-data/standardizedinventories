@@ -42,6 +42,12 @@ databases:
         file_name: 'egrid2023_data_rev2.xlsx'
         file_version: ''
         download_url: 'https://www.epa.gov/system/files/documents/2025-06/egrid2023_data_rev2.xlsx'
+    '2024':
+        file_name: 'egrid2024_data_metric.xlsx'
+        file_version: ''
+        units: metric
+        source_url: 'https://zenodo.org/records/18968658'
+        download_url: 'https://zenodo.org/records/18968658/files/egrid2024_data_metric.xlsx?download=1'
 
   NEI:
     url: 'http://eis.epa.gov'
