@@ -73,7 +73,7 @@ Some validation issues are expected due to differences in default parameters use
 ### eGRID
 
 eGRID data for 2014-2023 are sourced from EPA's [eGRID](https://www.epa.gov/egrid) site.
-The 2024 inventory uses the metric workbook from Cornerstone on [Zenodo](https://zenodo.org/records/18968658).
+The 2024 inventory uses the workbook from Cornerstone on [Zenodo](https://zenodo.org/records/18968658).
 For validation, the sum of facility releases are compared against reported U.S. totals by flow.
 
 ### GHGRP
@@ -125,6 +125,44 @@ cd standardizedinventories
 pip install . # or pip install -e . for devs
 ```
 
+### Development setup
+
+The repository does not include a virtual environment. Use a dedicated venv (or conda env)
+so dependencies—especially [esupy](https://github.com/USEPA/esupy), installed from GitHub
+via `setup.py`—are not mixed with system Python.
+
+From the repository root:
+
+```
+python -m venv .venv
+```
+
+Activate the environment:
+
+- Windows (PowerShell): `.\.venv\Scripts\Activate.ps1`
+- Windows (cmd): `.venv\Scripts\activate.bat`
+- macOS/Linux: `source .venv/bin/activate`
+
+Then install StEWI in editable mode and upgrade build tools:
+
+```
+python -m pip install --upgrade pip setuptools wheel
+pip install -e .
+```
+
+Run the default test suite (same scope as CI):
+
+```
+pytest -m "not (combined or inventory)"
+```
+
+Inventory generation tests (`-m inventory`) and combined-inventory tests (`-m combined`)
+download large source files and are skipped in routine CI; run them only when needed.
+
+**Generated outputs** (downloaded source workbooks, parquet inventories, validation results)
+are written under the esupy local data directory, not necessarily inside the clone. On
+Windows this is typically `%LOCALAPPDATA%\stewi\` (for example `eGRID Data Files\`,
+`flowbyfacility\`). Static reference files in the repository remain under `stewi/data/`.
 
 ### Secondary Context Installation Steps
 In order to enable calculation and assignment of urban/rural secondary contexts, please refer to
