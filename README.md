@@ -141,6 +141,7 @@ Activate the environment:
 
 - Windows (PowerShell): `.\.venv\Scripts\Activate.ps1`
 - Windows (cmd): `.venv\Scripts\activate.bat`
+- Windows (git bash): `.venv\Scripts\activate`
 - macOS/Linux: `source .venv/bin/activate`
 
 Then install StEWI in editable mode and upgrade build tools:
