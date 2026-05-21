@@ -451,4 +451,4 @@ def main(**kwargs):
 
 
 if __name__ == '__main__':
-    main(Year=[2023], Option='B')
+    main()
