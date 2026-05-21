@@ -39,6 +39,7 @@ Thumbs.db
 .idea/
 *.swp
 *~
+.vscode/
 
 # Secrets / local env
 .env
