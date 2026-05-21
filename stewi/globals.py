@@ -73,7 +73,7 @@ inventory_single_compartments = {"NEI": "air",
 STEWI_DATA_VINTAGES = {
     'DMR': [x for x in range(2011, 2024, 1)],
     'GHGRP': [x for x in range(2011, 2024, 1)],
-    'eGRID': [2014, 2016, 2018, 2019, 2020, 2021, 2022, 2023],
+    'eGRID': [2014, 2016, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
     'NEI': [x for x in range(2011, 2023, 1)],
     'RCRAInfo': [x for x in range(2011, 2024, 2)],
     'TRI': [x for x in range(2011, 2024, 1)],
@@ -206,7 +206,10 @@ def compile_source_metadata(sourcefile, config, year):
     if data_retrieval_time is not None:
         metadata['SourceAcquisitionTime'] = data_retrieval_time
     metadata['SourceFileName'] = sourcefile
-    metadata['SourceURL'] = config['url']
+    if year in config and config[year].get('source_url'):
+        metadata['SourceURL'] = config[year]['source_url']
+    else:
+        metadata['SourceURL'] = config['url']
     if year in config:
         metadata['SourceVersion'] = config[year]['file_version']
     else:
