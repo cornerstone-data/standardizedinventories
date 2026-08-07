@@ -2,15 +2,15 @@ from setuptools import setup
 
 setup(
     name="StEWI",
-    version="1.2.1",
+    version="1.2.2",
     author="Ben Young, Wesley Ingwersen, Matthew Bergmann, Jose Hernandez-Betancur, Tapajyoti Ghosh, Eric Bell",
-    author_email="ingwersen.wesley@epa.gov",
+    author_email="ingwersw@stanford.edu",
     description="Standardized Emission And Waste Inventories (StEWI)"
                 "provides processed EPA release and emissions inventories "
                 "in standard tabular format",
     license="MIT",
     keywords="USEPA data",
-    url="http://www.github.com/usepa/standardizedinventories",
+    url="http://www.github.com/cornerstone-data/standardizedinventories",
     packages=['chemicalmatcher', 'facilitymatcher', 'stewi', 'stewicombo'],
     include_package_data=True,
     python_requires=">=3.8",

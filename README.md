@@ -17,11 +17,11 @@ An article describing StEWI was published in a special issue of Applied Sciences
 
 ## USEPA Inventories Covered By Data Reporting Year (current version)
 
-|Source|2011|2012|2013|2014|2015|2016|2017|2018|2019|2020|2021|2022|2023|
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+|Source|2011|2012|2013|2014|2015|2016|2017|2018|2019|2020|2021|2022|2023|2024|
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 |[Discharge Monitoring Reports](https://echo.epa.gov/tools/data-downloads/icis-npdes-dmr-and-limit-data-set)* |x|x|x|x|x|x|x|x|x|x|x|x|x|
 |[Greenhouse Gas Reporting Program](https://www.epa.gov/ghgreporting) |x|x|x|x|x|x|x|x|x|x|x|x|x|
-|[Emissions & Generation Resource Integrated Database](https://www.epa.gov/energy/emissions-generation-resource-integrated-database-egrid) | | | |x| |x| |x|x|x|x|x|x|
+|[Emissions & Generation Resource Integrated Database](https://www.epa.gov/energy/emissions-generation-resource-integrated-database-egrid) | | | |x| |x| |x|x|x|x|x|x|x|
 |[National Emissions Inventory](https://www.epa.gov/air-emissions-inventories/national-emissions-inventory-nei)** |x|i|i|x|i|i|x|i|i|x|i|i| |
 |[RCRA Biennial Report](https://www.epa.gov/hwgenerators/biennial-hazardous-waste-report)* |x| |x| |x| |x| |x| |x| |x|
 |[Toxic Release Inventory](https://www.epa.gov/toxics-release-inventory-tri-program)* |x|x|x|x|x|x|x|x|x|x|x|x|x|
@@ -72,7 +72,8 @@ Some validation issues are expected due to differences in default parameters use
 
 ### eGRID
 
-eGRID data are sourced from EPA's [eGRID](https://www.epa.gov/egrid) site.
+eGRID data for 2014-2023 are sourced from EPA's [eGRID](https://www.epa.gov/egrid) site.
+The 2024 inventory uses the workbook from Cornerstone on [Zenodo](https://zenodo.org/records/18968658).
 For validation, the sum of facility releases are compared against reported U.S. totals by flow.
 
 ### GHGRP
@@ -124,6 +125,45 @@ cd standardizedinventories
 pip install . # or pip install -e . for devs
 ```
 
+### Development setup
+
+The repository does not include a virtual environment. Use a dedicated venv (or conda env)
+so dependencies—especially [esupy](https://github.com/USEPA/esupy), installed from GitHub
+via `setup.py`—are not mixed with system Python.
+
+From the repository root:
+
+```
+python -m venv .venv
+```
+
+Activate the environment:
+
+- Windows (PowerShell): `.\.venv\Scripts\Activate.ps1`
+- Windows (cmd): `.venv\Scripts\activate.bat`
+- Windows (git bash): `.venv\Scripts\activate`
+- macOS/Linux: `source .venv/bin/activate`
+
+Then install StEWI in editable mode and upgrade build tools:
+
+```
+python -m pip install --upgrade pip setuptools wheel
+pip install -e .
+```
+
+Run the default test suite (same scope as CI):
+
+```
+pytest -m "not (combined or inventory)"
+```
+
+Inventory generation tests (`-m inventory`) and combined-inventory tests (`-m combined`)
+download large source files and are skipped in routine CI; run them only when needed.
+
+**Generated outputs** (downloaded source workbooks, parquet inventories, validation results)
+are written under the esupy local data directory, not necessarily inside the clone. On
+Windows this is typically `%LOCALAPPDATA%\stewi\` (for example `eGRID Data Files\`,
+`flowbyfacility\`). Static reference files in the repository remain under `stewi/data/`.
 
 ### Secondary Context Installation Steps
 In order to enable calculation and assignment of urban/rural secondary contexts, please refer to
@@ -137,13 +177,3 @@ See the [Data Product Links](https://github.com/USEPA/standardizedinventories/wi
 ## Wiki
 See the [Wiki](https://github.com/USEPA/standardizedinventories/wiki) for instructions on installation and use and for
 citation and contact information.
-
-## Disclaimer
-
-The United States Environmental Protection Agency (EPA) GitHub project code is provided on an "as is" basis
-and the user assumes responsibility for its use.  EPA has relinquished control of the information and no longer
-has responsibility to protect the integrity , confidentiality, or availability of the information.
-Any reference to specific commercial products, processes, or services by service mark, trademark, manufacturer,
-or otherwise, does not constitute or imply their endorsement, recommendation or favoring by EPA.
-The EPA seal and logo shall not be used in any manner to imply endorsement of any commercial product or activity
-by EPA or the United States Government.
