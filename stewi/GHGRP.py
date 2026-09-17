@@ -226,9 +226,10 @@ def stage_archive_tables(year, archive_path, m, tables):
         else:
             log.info('staged %s (rows: %i)', table, len(df))
         df.to_csv(filepath, index=False)
-    year_config = archive_year_config(year)
+    year_config = archive_year_config(year) or {}
     m.add(time=time.ctime(archive_path.stat().st_mtime), filename=archive_path,
-          filetype='Static File', url=year_config.get('source_url', 'NA'))
+          filetype='Static File',
+          url=year_config.get('source_url', str(archive_path)))
 
 
 def generate_url(table, report_year='', row_start=0, row_end=9999,
@@ -833,15 +834,22 @@ def generate_national_totals_validation(
 
 def validate_national_totals_by_subpart(tab_df, year):
     log.info('validating flowbyfacility against national totals')
+    # AmountCO2e is set only by subpart O, which a year built from an archive
+    # does not carry
+    if 'AmountCO2e' not in tab_df:
+        tab_df = tab_df.assign(AmountCO2e=np.nan)
     # apply CO2e factors for some flows
     mask = (tab_df['AmountCO2e'].isna() & tab_df['FlowID'].isin(flows_CO2e))
     tab_df.loc[mask, 'Flow Description'] = 'Fluorinated GHG Emissions (mt CO2e)'
-    subpart_L_GWPs = (load_subpart_l_gwp()
+    subpart_L_GWPs = (load_subpart_l_gwp(required=False)
                       .rename(columns={'Flow Name': 'FlowName'}))
-    tab_df = tab_df.merge(subpart_L_GWPs, how='left',
-                          on=['FlowName', 'Flow Description'],
-                          validate="m:1")
-    tab_df['CO2e_factor'] = tab_df['CO2e_factor'].fillna(1)
+    if subpart_L_GWPs.empty:
+        tab_df['CO2e_factor'] = 1
+    else:
+        tab_df = tab_df.merge(subpart_L_GWPs, how='left',
+                              on=['FlowName', 'Flow Description'],
+                              validate="m:1")
+        tab_df['CO2e_factor'] = tab_df['CO2e_factor'].fillna(1)
     tab_df.loc[mask, 'AmountCO2e'] = tab_df['FlowAmount'] * tab_df['CO2e_factor']
 
     # for subset of flows, use CO2e for validation
@@ -889,11 +897,35 @@ def generate_metadata(year, m, datatype='inventory'):
         write_metadata(f'GHGRP_{year}', source_meta, datatype=datatype)
 
 
-def load_subpart_l_gwp():
-    """Load global warming potentials for subpart L calculation."""
+def load_subpart_l_gwp(required=True):
+    """Load global warming potentials for subpart L calculation.
+
+    The e-GGRT help site the workbook is attached to has been migrated, and the
+    attachment URL now answers with an HTML page, so a machine without the
+    workbook already cached cannot read it. A caller that only needs the
+    factors to report a validation figure passes ``required=False`` and gets an
+    empty lookup; :func:`parse_subpart_L` cannot, because the factors divide
+    its flow amounts.
+    """
     subpart_L_GWPs_url = _config['subpart_L_GWPs_url']
     filepath = OUTPUT_PATH.joinpath('Subpart L Calculation Spreadsheet.xls')
     download_table(filepath=filepath, url=subpart_L_GWPs_url)
+    try:
+        pd.ExcelFile(filepath)
+    except ValueError as e:
+        # whatever answered is not a workbook; drop it so that a later run
+        # retries the URL instead of reading back the cached error page
+        filepath.unlink(missing_ok=True)
+        if required:
+            raise stewi.exceptions.DataNotFoundError(
+                message=('subpart L global warming potentials unavailable from '
+                         f'{subpart_L_GWPs_url}')) from e
+        log.warning('subpart L global warming potentials unavailable from %s; '
+                    'fluorinated GHG flows are validated against CO2e national '
+                    'totals with a factor of 1 and will read short',
+                    subpart_L_GWPs_url)
+        return pd.DataFrame(columns=['Flow Name', 'CO2e_factor',
+                                     'Flow Description'])
     table1 = pd.read_excel(filepath, sheet_name='Lookup Tables',
                            usecols="A,D")
     table1.rename(columns={'Global warming potential (100 yr.)': 'CO2e_factor',
