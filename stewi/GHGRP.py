@@ -174,14 +174,19 @@ def resolve_archive(year, archive=None):
 def read_archive_table(archive_path, member, year):
     """Read one Envirofacts view out of the archive, filtered to the year.
 
-    The archive holds every reporting year in one file per view, and writes
-    numeric columns with ten decimal places, so identifiers and the year itself
-    come back as floats. Both are cast back to integers here, because a
-    ``FacilityID`` of ``1006069.0`` joins to nothing downstream.
+    The archive holds every reporting year in one file per view. Everything is
+    read as text and written back as text, so that a zero-padded code survives
+    staging - inferring types here turns a ZIP of ``07031`` into ``7031`` and a
+    ``COUNTY_FIPS`` of ``01117`` into ``1117``. The staged CSV is then read with
+    ordinary type inference, exactly as an API download would be.
+
+    Identifiers and the reporting year are the exception: the archive writes
+    numeric columns with ten decimal places, and a ``FacilityID`` of
+    ``1006069.0`` joins to nothing downstream.
     """
     with zipfile.ZipFile(archive_path) as zip_file:
         with zip_file.open(member) as f:
-            df = pd.read_csv(f, low_memory=False)
+            df = pd.read_csv(f, low_memory=False, dtype=str)
     df.columns = df.columns.str.upper()
     year_col = next((c for c in ('REPORTING_YEAR', 'YEAR') if c in df.columns),
                     None)
