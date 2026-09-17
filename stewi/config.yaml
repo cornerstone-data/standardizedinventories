@@ -131,6 +131,9 @@ databases:
       state_url: 'https://echodata.epa.gov/echo/dmr_rest_services.get_state_stats?p_year=__year__&output=csv'
   GHGRP:
       most_recent_year: '2023'
+        # Last reporting year EPA has published. The Envirofacts API, the data
+        # summary spreadsheets and the subpart spreadsheets below all stop
+        # here. Later years are built from an archive - see '2024'.
       enviro_url: 'https://data.epa.gov/efservice/'
       url: 'https://www.epa.gov/system/files/'
       data_summaries_url: 'other-files/2024-10/2023_data_summary_spreadsheets.zip'
@@ -152,4 +155,20 @@ databases:
         # Subpart O (HCFC-22 Production and HFC-23 Destruction)
         # across all reporting years.
       subpart_L_GWPs_url: 'https://ccdsupport.com/confluence/download/attachments/63996073/Subpart%20L%20Calculation%20Spreadsheet%20-%20Summarize%20Process%20Level%20CO2e%20by%20f-GHG.xls?version=1&modificationDate=1427459649000&api=v2'
+      '2024':
+        # EPA has not published RY2024: neither the Envirofacts API nor any of
+        # the spreadsheets above serve it. These are the same Envirofacts (EF_V)
+        # views the API serves, exported one file per view with every reporting
+        # year in each, released under FOIA. The export is ~2.6 GB compressed
+        # and is not redistributable, so StEWI never downloads it: put it in
+        # the 'GHGRP Data Files' directory, pass -A/--Archive, or set
+        # GHGRP_EF_VIEWS_ARCHIVE.
+        archive_file_name: 'EF_Views_20251027.zip'
+        file_version: ''
+        source_url: 'https://www.epa.gov/foia'
+        source_note: 'RY2024 Envirofacts views released under EPA FOIA request 2025-EPA-07958, export dated 27-Oct-2025'
+        omitted_subparts: ['E', 'BB', 'CC', 'L', 'O']
+          # Reported to EPA but published only in the aggregated subpart
+          # spreadsheets, which stop at most_recent_year. 2.2 Mt CO2e in 2024,
+          # 0.09% of the GHGRP total.
 

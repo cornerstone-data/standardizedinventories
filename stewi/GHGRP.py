@@ -18,7 +18,13 @@ Option:
     C - for downloading national totals for validation
 
 Year:
-    2011-2021
+    2011-2024
+
+Reporting years EPA has published are built from the Envirofacts API. A year
+EPA has not published - 2024 - is built from a local archive of the same
+Envirofacts views, declared per year in config.yaml. Pass its path with
+-A/--Archive or set GHGRP_EF_VIEWS_ARCHIVE; it is not redistributable, so it is
+never downloaded.
 
 Models with tables available at:
     https://www.epa.gov/enviro/greenhouse-gas-model
@@ -28,6 +34,7 @@ Envirofacts web services documentation can be found at:
 
 import pandas as pd
 import numpy as np
+import os
 import time
 import argparse
 import warnings
@@ -81,6 +88,28 @@ info_cols = name_cols + quantity_cols + method_cols
 group_cols = co2_cols + ch4_cols + n2o_cols
 ghg_cols = base_cols + info_cols + group_cols
 
+# Envirofacts view holding one row per facility per reporting year. Stands in
+# for the data summary spreadsheets, which EPA publishes only for years it has
+# released, when a year is built from an archive.
+EF_FACILITIES_TABLE = 'V_GHG_EMITTER_FACILITIES'
+
+# Envirofacts view the national totals validation is built from.
+EF_VALIDATION_TABLE = 'V_GHG_EMITTER_SUBPART'
+
+# V_GHG_EMITTER_FACILITIES column -> StEWI facility field. The view carries the
+# same facility attributes as the data summary spreadsheets, under EF names.
+EF_FACILITY_COLUMNS = {'FACILITY_ID': 'FacilityID',
+                       'FACILITY_NAME': 'FacilityName',
+                       'ADDRESS1': 'Address',
+                       'CITY': 'City',
+                       'STATE': 'State',
+                       'ZIP': 'Zip',
+                       'COUNTY': 'County',
+                       'LATITUDE': 'Latitude',
+                       'LONGITUDE': 'Longitude',
+                       'PRIMARY_NAICS_CODE': 'NAICS',
+                       }
+
 # define filepaths for downloaded data
 data_summaries_path = OUTPUT_PATH.joinpath(
     f"{_config['most_recent_year']}_data_summary_spreadsheets")
@@ -102,6 +131,104 @@ class MetaGHGRP:
         self.filename.append(str(filename))
         self.filetype.append(filetype)
         self.url.append(url)
+
+
+def archive_year_config(year):
+    """Return the config block for a year built from an archive, else None.
+
+    EPA publishes GHGRP through the Envirofacts API and the data summary
+    spreadsheets. A reporting year it has not published is declared in
+    config.yaml with an ``archive_file_name``, and is built from a local
+    archive of the same Envirofacts views instead.
+    """
+    year_config = _config.get(str(year))
+    if isinstance(year_config, dict) and year_config.get('archive_file_name'):
+        return year_config
+    return None
+
+
+def resolve_archive(year, archive=None):
+    """Locate the Envirofacts views archive for a year built from an archive.
+
+    Checked in order: the ``archive`` argument, ``$GHGRP_EF_VIEWS_ARCHIVE``,
+    then ``archive_file_name`` from config.yaml under :data:`OUTPUT_PATH`. The
+    archive is not redistributable and is never downloaded - it has to already
+    be on the machine.
+    """
+    year_config = archive_year_config(year)
+    if year_config is None:
+        raise stewi.exceptions.InventoryNotAvailableError(
+            message=f'GHGRP {year} is not built from an archive')
+    candidates = [archive,
+                  os.environ.get('GHGRP_EF_VIEWS_ARCHIVE'),
+                  OUTPUT_PATH / year_config['archive_file_name']]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return Path(candidate)
+    raise stewi.exceptions.DataNotFoundError(
+        message=(f"Envirofacts views archive for GHGRP {year} not found. Put "
+                 f"{year_config['archive_file_name']} in {OUTPUT_PATH}, pass "
+                 "-A/--Archive, or set GHGRP_EF_VIEWS_ARCHIVE."))
+
+
+def read_archive_table(archive_path, member, year):
+    """Read one Envirofacts view out of the archive, filtered to the year.
+
+    The archive holds every reporting year in one file per view, and writes
+    numeric columns with ten decimal places, so identifiers and the year itself
+    come back as floats. Both are cast back to integers here, because a
+    ``FacilityID`` of ``1006069.0`` joins to nothing downstream.
+    """
+    with zipfile.ZipFile(archive_path) as zip_file:
+        with zip_file.open(member) as f:
+            df = pd.read_csv(f, low_memory=False)
+    df.columns = df.columns.str.upper()
+    year_col = next((c for c in ('REPORTING_YEAR', 'YEAR') if c in df.columns),
+                    None)
+    if year_col is None:
+        raise stewi.exceptions.StewiQueryError(
+            message=f'{member} carries no reporting year column')
+    for col in [c for c in df.columns if c == year_col or c.endswith('_ID')]:
+        numeric = pd.to_numeric(df[col], errors='coerce')
+        if numeric.isna().sum() == df[col].isna().sum():
+            df[col] = numeric.astype('Int64')
+        else:
+            log.debug(f'leaving {col} as read; it is not wholly numeric')
+    return df[df[year_col] == int(year)].reset_index(drop=True)
+
+
+def stage_archive_tables(year, archive_path, m, tables):
+    """Write year-filtered Envirofacts views from the archive to the tables dir.
+
+    Writes into the same ``tables/<year>`` directory an API download would
+    fill, so everything downstream - subpart assignment, parsing, validation -
+    runs unchanged. Tables already staged are left alone.
+    """
+    tables_dir = OUTPUT_PATH.joinpath('tables', str(year))
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive_path) as zip_file:
+        members = {Path(n).stem.upper(): n for n in zip_file.namelist()
+                   if n.lower().endswith('.csv')}
+    absent = [t for t in tables if t not in members]
+    if absent:
+        raise stewi.exceptions.DataNotFoundError(
+            message=(f'{archive_path.name} is missing tables needed for GHGRP '
+                     f'{year}: {", ".join(absent)}'))
+    log.info(f'staging GHGRP {year} tables from {archive_path}')
+    for table in tables:
+        filepath = tables_dir.joinpath(f'{table}.csv')
+        if filepath.is_file():
+            log.debug(f'{table} already staged in {tables_dir}')
+            continue
+        df = read_archive_table(archive_path, members[table], year)
+        if df.empty:
+            log.warning(f'{table} has no {year} rows in {archive_path.name}')
+        else:
+            log.info('staged %s (rows: %i)', table, len(df))
+        df.to_csv(filepath, index=False)
+    year_config = archive_year_config(year)
+    m.add(time=time.ctime(archive_path.stat().st_mtime), filename=archive_path,
+          filetype='Static File', url=year_config.get('source_url', 'NA'))
 
 
 def generate_url(table, report_year='', row_start=0, row_end=9999,
@@ -160,7 +287,37 @@ def download_chunks(table, table_count, m, row_start=0, report_year='',
 
 
 def get_facilities(year):
-    """Load and parse GHGRP data by facility from the API.
+    """Return GHGRP facilities for the reporting year.
+
+    Facilities normally come from the data summary spreadsheet EPA publishes
+    per year. A year built from an archive has no such spreadsheet, so the
+    ``V_GHG_EMITTER_FACILITIES`` view is used instead - the same facility
+    attributes, out of the same database.
+    """
+    if archive_year_config(year):
+        return facilities_from_ef_view(year)
+    return facilities_from_data_summaries(year)
+
+
+def facilities_from_ef_view(year):
+    """Parse GHGRP facilities from the staged V_GHG_EMITTER_FACILITIES view."""
+    filepath = OUTPUT_PATH.joinpath('tables', str(year),
+                                    f'{EF_FACILITIES_TABLE}.csv')
+    if not filepath.is_file():
+        raise stewi.exceptions.DataNotFoundError(
+            message=(f'{EF_FACILITIES_TABLE} has not been staged for GHGRP '
+                     f'{year}; run Option A first'))
+    log.info(f'loading facilities from {filepath}')
+    # Zip is read as text so that facilities in a 0-prefixed ZCTA keep it.
+    facilities_df = (pd.read_csv(filepath, low_memory=False, dtype={'ZIP': str})
+                     .rename(columns=EF_FACILITY_COLUMNS))
+    facilities_df = facilities_df[
+        StewiFormat.FACILITY.subset_fields(facilities_df)]
+    return facilities_df.drop_duplicates()
+
+
+def facilities_from_data_summaries(year):
+    """Load and parse GHGRP data by facility from the data summary spreadsheet.
 
     Parses data to create dataframe of GHGRP facilities along with identifying
     information such as address, zip code, lat and long.
@@ -308,12 +465,12 @@ def import_table(path_or_reference, get_time=False):
     return df
 
 
-def download_and_parse_subpart_tables(year, m):
-    """
-    Generates a list of required subpart tables, based on report year.
-    Downloads all subpart tables in the list and saves them to local network.
-    Parses subpart tables to standardized EPA format, and concatenates into
-    master dataframe.
+def required_tables(year):
+    """Return the Envirofacts tables carrying primary emissions for the year.
+
+    Shared by the API download and the archive staging so that both fill
+    ``tables/<year>`` with the same set, and the SUBPART column that becomes
+    ``Process`` is read off the same rows either way.
     """
     # import list of all ghgrp tables
     ghgrp_tables_df = pd.read_csv(GHGRP_DATA_PATH
@@ -321,13 +478,23 @@ def download_and_parse_subpart_tables(year, m):
                                   ).fillna('')
     # filter to obtain only those tables included in the report year
     year_tables = ghgrp_tables_df[ghgrp_tables_df['REPORTING_YEAR'
-                                                  ].str.contains(year)]
+                                                  ].str.contains(str(year))]
     if len(year_tables)==0:
         raise stewi.exceptions.InventoryNotAvailableError(
             inv='GHGRP', year=year)
     # filter to obtain only those tables that include primary emissions
-    year_tables = year_tables[year_tables['PrimaryEmissions'] == 1
-                              ].reset_index(drop=True)
+    return year_tables[year_tables['PrimaryEmissions'] == 1
+                       ].reset_index(drop=True)
+
+
+def download_and_parse_subpart_tables(year, m):
+    """
+    Generates a list of required subpart tables, based on report year.
+    Downloads all subpart tables in the list and saves them to local network.
+    Parses subpart tables to standardized EPA format, and concatenates into
+    master dataframe.
+    """
+    year_tables = required_tables(year)
 
     # data directory where subpart emissions tables will be stored
     tables_dir = OUTPUT_PATH.joinpath('tables', year)
@@ -595,10 +762,15 @@ def parse_subpart_L(year):
 
 def generate_national_totals_validation(
         year,
-        validation_table='V_GHG_EMITTER_SUBPART'
+        validation_table=EF_VALIDATION_TABLE
         ):
-    # define filepath for reference data
-    ref_filepath = OUTPUT_PATH.joinpath('GHGRP_reference.csv')
+    # define filepath for reference data. A year built from an archive has the
+    # view staged per year already; the API path keeps its single shared file.
+    if archive_year_config(year):
+        ref_filepath = OUTPUT_PATH.joinpath('tables', str(year),
+                                            f'{validation_table}.csv')
+    else:
+        ref_filepath = OUTPUT_PATH.joinpath('GHGRP_reference.csv')
     m = MetaGHGRP()
     reference_df = import_or_download_table(ref_filepath, validation_table,
                                             year, m)
@@ -644,13 +816,16 @@ def generate_national_totals_validation(
     # Update validationSets_Sources.csv
     date_created = time.strptime(time.ctime(ref_filepath.stat().st_ctime))
     date_created = time.strftime('%d-%b-%Y', date_created)
+    year_config = archive_year_config(year)
     validation_dict = {'Inventory': 'GHGRP',
                        #'Version':'',
                        'Year': year,
-                       'Name': 'GHGRP Table V_GHG_EMITTER_SUBPART',
-                       'URL': generate_url(validation_table, report_year='',
-                                           row_start='', output_ext='CSV'),
-                       'Criteria': '',
+                       'Name': f'GHGRP Table {validation_table}',
+                       'URL': (year_config['source_url'] if year_config else
+                               generate_url(validation_table, report_year='',
+                                            row_start='', output_ext='CSV')),
+                       'Criteria': (year_config.get('source_note', '')
+                                    if year_config else ''),
                        'Date Acquired': date_created,
                        }
     update_validationsets_sources(validation_dict, date_acquired=True)
@@ -769,6 +944,11 @@ def main(**kwargs):
                         help = 'What GHGRP year do you want to retrieve',
                         type = str)
 
+    parser.add_argument('-A', '--Archive',
+                        help = 'Path to the Envirofacts views archive, for a \
+                        reporting year EPA has not published',
+                        type = str)
+
     if len(kwargs) == 0:
         kwargs = vars(parser.parse_args())
 
@@ -778,25 +958,46 @@ def main(**kwargs):
         if kwargs['Option'] == 'A':
 
             m = MetaGHGRP()
-            download_excel_tables(m)
+            year_config = archive_year_config(year)
+            if year_config:
+                # stage the report year out of the archive into the same
+                # tables directory an API download would have filled
+                archive_path = resolve_archive(year, kwargs.get('Archive'))
+                stage_archive_tables(
+                    year, archive_path, m,
+                    list(required_tables(year)['TABLE']) +
+                    [EF_FACILITIES_TABLE, EF_VALIDATION_TABLE])
+            else:
+                download_excel_tables(m)
 
             # download subpart emissions tables for report year and save locally
             # parse subpart emissions data to match standardized EPA format
             ghgrp1 = download_and_parse_subpart_tables(year, m)
 
-            # parse emissions data for subparts E, BB, CC, LL (S already accounted for)
-            ghgrp2 = parse_additional_suparts_data(esbb_subparts_path,
-                                                   'esbb_subparts_columns.csv', year)
+            if year_config:
+                # Subparts E, BB, CC, L and O reach StEWI only through the
+                # aggregated spreadsheets EPA publishes for released years, so
+                # a year built from an archive cannot carry them.
+                log.warning('GHGRP %s omits subparts %s: they are only '
+                            'published in the aggregated spreadsheets, which '
+                            'stop at %s', year,
+                            ', '.join(year_config.get('omitted_subparts', [])),
+                            _config['most_recent_year'])
+                ghgrp = ghgrp1.reset_index(drop=True)
+            else:
+                # parse emissions data for subparts E, BB, CC, LL (S already accounted for)
+                ghgrp2 = parse_additional_suparts_data(esbb_subparts_path,
+                                                       'esbb_subparts_columns.csv', year)
 
-            # parse emissions data for subpart O
-            ghgrp3 = parse_subpart_O(year)
+                # parse emissions data for subpart O
+                ghgrp3 = parse_subpart_O(year)
 
-            # parse emissions data for subpart L
-            ghgrp4 = parse_subpart_L(year)
+                # parse emissions data for subpart L
+                ghgrp4 = parse_subpart_L(year)
 
-            # concatenate ghgrp1, ghgrp2, ghgrp3, and ghgrp4
-            ghgrp = pd.concat([ghgrp1, ghgrp2,
-                               ghgrp3, ghgrp4]).reset_index(drop=True)
+                # concatenate ghgrp1, ghgrp2, ghgrp3, and ghgrp4
+                ghgrp = pd.concat([ghgrp1, ghgrp2,
+                                   ghgrp3, ghgrp4]).reset_index(drop=True)
 
             # map flow descriptions to standard gas names from GHGRP
             ghg_mapping = pd.read_csv(GHGRP_DATA_PATH.joinpath('ghg_mapping.csv'),
@@ -897,10 +1098,14 @@ def main(**kwargs):
 
         elif kwargs['Option'] == 'C':
             log.info('generating national totals for validation')
+            if archive_year_config(year):
+                stage_archive_tables(
+                    year, resolve_archive(year, kwargs.get('Archive')),
+                    MetaGHGRP(), [EF_VALIDATION_TABLE])
             generate_national_totals_validation(year)
 
 
 if __name__ == '__main__':
-    main(Option='C', Year=range(2021, 2024))
-    main(Option='A', Year=range(2021, 2024))
-    main(Option='B', Year=range(2021, 2024))
+    main(Option='C', Year=range(2021, 2025))
+    main(Option='A', Year=range(2021, 2025))
+    main(Option='B', Year=range(2021, 2025))
