@@ -166,7 +166,7 @@ databases:
         archive_file_name: 'EF_Views_20251027.zip'
         file_version: ''
         source_url: 'https://www.epa.gov/foia'
-        source_note: 'RY2024 Envirofacts views released under EPA FOIA request 2025-EPA-07958, export dated 27-Oct-2025'
+        source_note: 'RY2024 Envirofacts views released under EPA FOIA request 2025-EPA-07958, export dated 27-Oct-2025. V_GHG_EMITTER_SUBPART carries GHG_QUANTITY and CO2E_EMISSION for CO2, CH4 and N2O only in this export, so biogenic CO2, SF6, NF3 and the fluorinated GHG groups have rows but no quantity and validate against zero.'
         omitted_subparts: ['E', 'BB', 'CC', 'L', 'O']
           # Reported to EPA but published only in the aggregated subpart
           # spreadsheets, which stop at most_recent_year. 2.2 Mt CO2e in 2024,

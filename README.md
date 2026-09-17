@@ -78,10 +78,25 @@ For validation, the sum of facility releases are compared against reported U.S. 
 
 ### GHGRP
 
-GHGRP data are sourced from EPA's [Envirofacts API](https://enviro.epa.gov/)
+GHGRP data for the reporting years EPA has published (2011-2023) are sourced from EPA's [Envirofacts API](https://enviro.epa.gov/),
+together with the data summary spreadsheets and the aggregated subpart spreadsheets from EPA's [Data Sets](https://www.epa.gov/ghgreporting/data-sets) page.
 For validation, the sum of facility releases by subpart are compared against reported U.S. totals by subpart and flow.
 The validation of some flows (HFC, HFE, and PFCs) are reported in carbon dioxide equivalents.
 Mixed reporting of these flows in the source data in units of mass or carbon dioxide equivalents results in validation issues.
+
+EPA has not published reporting year 2024. That year is built instead from a local
+archive of the same Envirofacts views, declared under `'2024'` in `config.yaml`.
+The archive is not redistributable and is never downloaded: pass its path with
+`-A/--Archive`, set `GHGRP_EF_VIEWS_ARCHIVE`, or put it in the `GHGRP Data Files`
+directory. Two differences follow from the source:
+
+- Facilities come from the `V_GHG_EMITTER_FACILITIES` view rather than the
+  per-year data summary spreadsheet. The view reports EPA's facility location
+  where the spreadsheet reports the facility's own, so latitude, longitude and
+  county differ for some facilities, and `Zip` keeps a leading zero.
+- Subparts E, BB, CC, L and O are absent. They reach StEWI only through the
+  aggregated subpart spreadsheets, which stop at the last published year. In 2024
+  they are 2.2 Mt CO2e of 2,564 Mt, 0.09% of the programme total.
 
 ### NEI
 

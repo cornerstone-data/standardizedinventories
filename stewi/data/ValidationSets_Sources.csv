@@ -70,3 +70,4 @@ GHGRP,,2020,GHGRP Table V_GHG_EMITTER_SUBPART,https://data.epa.gov/efservice/V_G
 GHGRP,,2021,GHGRP Table V_GHG_EMITTER_SUBPART,https://data.epa.gov/efservice/V_GHG_EMITTER_SUBPART/CSV,,14-Feb-2025
 GHGRP,,2022,GHGRP Table V_GHG_EMITTER_SUBPART,https://data.epa.gov/efservice/V_GHG_EMITTER_SUBPART/CSV,,14-Feb-2025
 GHGRP,,2023,GHGRP Table V_GHG_EMITTER_SUBPART,https://data.epa.gov/efservice/V_GHG_EMITTER_SUBPART/CSV,,14-Feb-2025
+GHGRP,,2024,GHGRP Table V_GHG_EMITTER_SUBPART,https://www.epa.gov/foia,"RY2024 Envirofacts views released under EPA FOIA request 2025-EPA-07958, export dated 27-Oct-2025. V_GHG_EMITTER_SUBPART carries GHG_QUANTITY and CO2E_EMISSION for CO2, CH4 and N2O only in this export, so biogenic CO2, SF6, NF3 and the fluorinated GHG groups have rows but no quantity and validate against zero.",17-Sep-2026
