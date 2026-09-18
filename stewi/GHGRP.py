@@ -296,14 +296,17 @@ def download_chunks(table, table_count, m, row_start=0, report_year='',
 def get_facilities(year):
     """Return GHGRP facilities for the reporting year.
 
-    Facilities normally come from the data summary spreadsheet EPA publishes
-    per year. A year built from an archive has no such spreadsheet, so the
-    ``V_GHG_EMITTER_FACILITIES`` view is used instead - the same facility
-    attributes, out of the same database.
+    Facilities come from the data summary spreadsheet EPA publishes per year
+    wherever there is one, including for a year whose emissions were built from
+    an archive - that keeps a rebuilt year's facility attributes identical to
+    the published build, so only the emissions carry the new vintage. Past the
+    published range there is no spreadsheet, and the
+    ``V_GHG_EMITTER_FACILITIES`` view stands in: the same attributes, out of the
+    same database.
     """
-    if archive_year_config(year):
-        return facilities_from_ef_view(year)
-    return facilities_from_data_summaries(year)
+    if published_spreadsheets_cover(year):
+        return facilities_from_data_summaries(year)
+    return facilities_from_ef_view(year)
 
 
 def facilities_from_ef_view(year):
@@ -735,6 +738,53 @@ def parse_additional_suparts_data(addtnl_subparts_path, subpart_cols_file, year)
     return ghgrp
 
 
+def published_spreadsheets_cover(year):
+    """Whether EPA's published spreadsheets reach this reporting year.
+
+    Two sources share one vintage bound, ``most_recent_year``: the per-year data
+    summary spreadsheets that carry facility attributes, and the aggregated
+    subpart spreadsheets that are the only place subparts E, BB, CC, L and O
+    appear. Both stop at the last year EPA released, so a later year has
+    neither - which is why a 2024 build takes its facilities from an Envirofacts
+    view and carries no E, BB, CC, L or O.
+
+    This is a property of the reporting year, not of how the year is built. An
+    archive year inside the range still uses the spreadsheets, because the
+    archive replaces the Envirofacts tables and nothing else.
+    """
+    return int(year) <= int(_config['most_recent_year'])
+
+
+def additional_subpart_frames(year, allow_missing_gwp=False):
+    """Parse the subparts that reach StEWI only through the spreadsheets.
+
+    Returns an empty list for a year the spreadsheets do not reach, which is
+    what makes those five subparts absent from a 2024 build.
+
+    Subpart L additionally needs global warming potentials, whose download is
+    broken upstream - see :func:`load_subpart_l_gwp`. ``allow_missing_gwp``
+    omits that one subpart instead of failing, for a year already built from an
+    archive and already declaring omissions. A year built the ordinary way still
+    fails, because silently dropping a subpart from a full build is worse than
+    stopping.
+    """
+    if not published_spreadsheets_cover(year):
+        return []
+    # subparts E, BB and CC (S is already covered by the Envirofacts tables)
+    frames = [parse_additional_suparts_data(esbb_subparts_path,
+                                            'esbb_subparts_columns.csv', year),
+              parse_subpart_O(year)]
+    try:
+        frames.append(parse_subpart_L(year))
+    except stewi.exceptions.DataNotFoundError:
+        if not allow_missing_gwp:
+            raise
+        log.warning('subpart L omitted for %s: its global warming potentials '
+                    'are unavailable, and scaling its emissions by 1 instead '
+                    'would store carbon dioxide equivalents as mass', year)
+    return frames
+
+
 def parse_subpart_O(year):
     """Parse emissions data for subpart O."""
     df = parse_additional_suparts_data(lo_subparts_path,
@@ -997,45 +1047,37 @@ def main(**kwargs):
 
             m = MetaGHGRP()
             year_config = archive_year_config(year)
-            if year_config:
+            # passing an archive explicitly builds any year from it, which is
+            # how a published year gets rebuilt on the archive's vintage
+            if year_config or kwargs.get('Archive'):
                 # stage the report year out of the archive into the same
                 # tables directory an API download would have filled
-                archive_path = resolve_archive(year, kwargs.get('Archive'))
+                archive_path = Path(kwargs['Archive']) if kwargs.get('Archive') \
+                    else resolve_archive(year)
                 stage_archive_tables(
                     year, archive_path, m,
                     list(required_tables(year)['TABLE']) +
                     [EF_FACILITIES_TABLE, EF_VALIDATION_TABLE])
-            else:
+            if published_spreadsheets_cover(year):
+                # a separate source from the Envirofacts tables, so an archive
+                # year inside their range needs them too
                 download_excel_tables(m)
 
             # download subpart emissions tables for report year and save locally
             # parse subpart emissions data to match standardized EPA format
             ghgrp1 = download_and_parse_subpart_tables(year, m)
 
-            if year_config:
-                # Subparts E, BB, CC, L and O reach StEWI only through the
-                # aggregated spreadsheets EPA publishes for released years, so
-                # a year built from an archive cannot carry them.
+            # subparts E, BB, CC, O and L, which only the spreadsheets carry
+            extra = additional_subpart_frames(
+                year, allow_missing_gwp=bool(year_config or kwargs.get('Archive')))
+            if not extra:
                 log.warning('GHGRP %s omits subparts %s: they are only '
                             'published in the aggregated spreadsheets, which '
                             'stop at %s', year,
-                            ', '.join(year_config.get('omitted_subparts', [])),
+                            ', '.join(year_config.get('omitted_subparts', []))
+                            if year_config else 'E, BB, CC, L, O',
                             _config['most_recent_year'])
-                ghgrp = ghgrp1.reset_index(drop=True)
-            else:
-                # parse emissions data for subparts E, BB, CC, LL (S already accounted for)
-                ghgrp2 = parse_additional_suparts_data(esbb_subparts_path,
-                                                       'esbb_subparts_columns.csv', year)
-
-                # parse emissions data for subpart O
-                ghgrp3 = parse_subpart_O(year)
-
-                # parse emissions data for subpart L
-                ghgrp4 = parse_subpart_L(year)
-
-                # concatenate ghgrp1, ghgrp2, ghgrp3, and ghgrp4
-                ghgrp = pd.concat([ghgrp1, ghgrp2,
-                                   ghgrp3, ghgrp4]).reset_index(drop=True)
+            ghgrp = pd.concat([ghgrp1, *extra]).reset_index(drop=True)
 
             # map flow descriptions to standard gas names from GHGRP
             ghg_mapping = pd.read_csv(GHGRP_DATA_PATH.joinpath('ghg_mapping.csv'),

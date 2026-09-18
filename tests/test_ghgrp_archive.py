@@ -157,10 +157,20 @@ def test_facilities_from_ef_view_says_to_stage_first(archive_year):
         GHGRP.facilities_from_ef_view(2024)
 
 
-def test_get_facilities_dispatches_on_the_year(archive, archive_year, monkeypatch):
+def test_published_spreadsheets_cover_stops_at_the_published_vintage():
+    last = GHGRP._config['most_recent_year']
+    assert GHGRP.published_spreadsheets_cover(last)
+    assert GHGRP.published_spreadsheets_cover(int(last) - 1)
+    assert not GHGRP.published_spreadsheets_cover(int(last) + 1)
+
+
+def test_get_facilities_dispatches_on_the_published_vintage(archive, archive_year,
+                                                           monkeypatch):
+    """Past the published range the view stands in; inside it the spreadsheet wins."""
     GHGRP.stage_archive_tables(2024, archive, GHGRP.MetaGHGRP(),
                                [GHGRP.EF_FACILITIES_TABLE])
     monkeypatch.setitem(GHGRP._config, '2024', GHGRP._config[archive_year])
+    monkeypatch.setitem(GHGRP._config, 'most_recent_year', '2023')
     assert len(GHGRP.get_facilities(2024)) == 2
 
     called = []
@@ -168,6 +178,54 @@ def test_get_facilities_dispatches_on_the_year(archive, archive_year, monkeypatc
                         lambda year: called.append(year) or pd.DataFrame())
     GHGRP.get_facilities('2019')
     assert called == ['2019']
+
+
+def test_an_archive_year_inside_the_published_range_keeps_the_spreadsheets(
+        archive, archive_year, monkeypatch):
+    """Rebuilding a published year from the archive must not drop E/BB/CC/L/O.
+
+    The archive replaces the Envirofacts tables only, so a year the spreadsheets
+    still cover keeps its facility source and its spreadsheet-only subparts.
+    """
+    GHGRP.stage_archive_tables(2024, archive, GHGRP.MetaGHGRP(),
+                               [GHGRP.EF_FACILITIES_TABLE])
+    # declare 2023 an archive year, the way a rebuild of a published year does
+    monkeypatch.setitem(GHGRP._config, '2023', GHGRP._config[archive_year])
+    monkeypatch.setitem(GHGRP._config, 'most_recent_year', '2023')
+
+    called = []
+    monkeypatch.setattr(GHGRP, 'facilities_from_data_summaries',
+                        lambda year: called.append(year) or pd.DataFrame())
+    GHGRP.get_facilities('2023')
+    assert called == ['2023'], 'an archive year in range must use the spreadsheet'
+
+    monkeypatch.setattr(GHGRP, 'parse_additional_suparts_data',
+                        lambda *a, **k: pd.DataFrame({'FlowAmount': [1.0]}))
+    monkeypatch.setattr(GHGRP, 'parse_subpart_O',
+                        lambda year: pd.DataFrame({'FlowAmount': [2.0]}))
+    monkeypatch.setattr(GHGRP, 'parse_subpart_L',
+                        lambda year: pd.DataFrame({'FlowAmount': [3.0]}))
+    assert len(GHGRP.additional_subpart_frames('2023')) == 3
+    # and nothing past the published range
+    assert GHGRP.additional_subpart_frames('2024') == []
+
+
+def test_subpart_L_is_omitted_only_when_the_caller_allows_it(archive_year,
+                                                            monkeypatch):
+    """A missing GWP lookup omits one subpart for an archive year, fails a normal one."""
+    monkeypatch.setitem(GHGRP._config, 'most_recent_year', '2023')
+    monkeypatch.setattr(GHGRP, 'parse_additional_suparts_data',
+                        lambda *a, **k: pd.DataFrame({'FlowAmount': [1.0]}))
+    monkeypatch.setattr(GHGRP, 'parse_subpart_O',
+                        lambda year: pd.DataFrame({'FlowAmount': [2.0]}))
+
+    def no_gwp(year):
+        raise stewi.exceptions.DataNotFoundError(message='no workbook')
+
+    monkeypatch.setattr(GHGRP, 'parse_subpart_L', no_gwp)
+    assert len(GHGRP.additional_subpart_frames('2023', allow_missing_gwp=True)) == 2
+    with pytest.raises(stewi.exceptions.DataNotFoundError):
+        GHGRP.additional_subpart_frames('2023')
 
 
 def test_required_tables_covers_2024():
