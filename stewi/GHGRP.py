@@ -174,8 +174,9 @@ def resolve_archive(year, archive=None):
 def read_archive_table(archive_path, member, year):
     """Read one Envirofacts view out of the archive, filtered to the year.
 
-    The archive holds every reporting year in one file per view. Everything is
-    read as text and written back as text, so that a zero-padded code survives
+    The archive holds several reporting years in one file per view - the RY2024
+    FOIA export holds 2019-2024 - so the year has to be filtered out of each.
+    Everything is read as text and written back as text, so a zero-padded code survives
     staging - inferring types here turns a ZIP of ``07031`` into ``7031`` and a
     ``COUNTY_FIPS`` of ``01117`` into ``1117``. The staged CSV is then read with
     ordinary type inference, exactly as an API download would be.

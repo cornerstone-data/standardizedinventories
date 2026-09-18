@@ -158,8 +158,8 @@ databases:
       '2024':
         # EPA has not published RY2024: neither the Envirofacts API nor any of
         # the spreadsheets above serve it. These are the same Envirofacts (EF_V)
-        # views the API serves, exported one file per view with every reporting
-        # year in each, released under FOIA. The export is ~2.6 GB compressed
+        # views the API serves, exported one file per view covering reporting
+        # years 2019-2024, released under FOIA. The export is ~2.6 GB compressed
         # and is not redistributable, so StEWI never downloads it: put it in
         # the 'GHGRP Data Files' directory, pass -A/--Archive, or set
         # GHGRP_EF_VIEWS_ARCHIVE.

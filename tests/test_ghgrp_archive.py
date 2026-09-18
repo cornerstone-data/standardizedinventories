@@ -2,8 +2,8 @@
 
 The real RY2024 archive is ~2.6 GB and not redistributable, so these build a
 three-row stand-in that reproduces the properties the code has to cope with:
-every reporting year in one file, numeric columns written with ten decimal
-places, and a top-level directory inside the zip.
+more than one reporting year in one file, numeric columns written with ten
+decimal places, and a top-level directory inside the zip.
 """
 
 import zipfile
