@@ -113,6 +113,58 @@ For validation, the sum of facility waste generation are compared against report
 TRI data are sourced from the [Basic Plus Data files](https://www.epa.gov/toxics-release-inventory-tri-program/tri-data-and-tools)
 For validation, the sum of facility releases are compared to national totals by flow from the TRI Explorer.
 
+### Facility matching
+
+`facilitymatcher` is built from the [FRS combined national
+file](https://www.epa.gov/frs/epa-state-combined-csv-download-files), a 1.3 GB
+zip that EPA replaces in place at one URL. It is streamed to
+`FRS Data Files/national_combined.zip` and kept, so reading a second file out of
+it does not download it again. To build from a copy already on hand — a pinned
+snapshot, or a machine with no route to the FRS host — put it at that path, pass
+it to `download_extract_FRS_combined_national(file, archive=...)`, or set
+`FRS_COMBINED_ARCHIVE`. FRS publishes no version string, so `SourceVersion` in
+the metadata is the build date read from the zip's own member timestamps, which
+travels with a copy.
+
+#### One site, two registry records
+
+The match list is the FRS bridge: a program identifier matched to whatever
+`REGISTRY_ID` FRS filed it under. Where FRS has filed two programs at one site
+under two registry records, the bridge links neither to the other, and anything
+that deduplicates on `FRS_ID` sees two facilities. FRS leaves no direct evidence
+of the split — a program identifier appears under exactly one registry record,
+with no exceptions in the September 2026 national file — so `colocation.py`
+recognises them from the facility attributes.
+
+Three rules, unioned; each requires the same state and a postcode that agrees
+wherever both records carry one:
+
+| rule | source file | test |
+|---|---|---|
+| `address` | `NATIONAL_FACILITY_FILE` | same street address, coordinates within 5 km where both have them, and either a shared name token or the same NAICS prefix |
+| `name` | `NATIONAL_FACILITY_FILE` | same facility name, coordinates present on both sides and within 1 km |
+| `program address` | `NATIONAL_PROGRAM_FILE` | same street address as **each program itself reported** it, corroborated as above |
+
+The thresholds are graded against the 3,402 GHGRP/NEI facility pairs FRS *does*
+link in 2022, using each program's own reported attributes: the two programs'
+coordinates for one site differ by a median of 184 m and agree within 1 km for
+90% of pairs; the normalised street address is identical for 77%; the normalised
+name for only 33%. The corroboration is what keeps a **tenant** at a host site —
+a slag processor at a steel mill, an industrial gas plant at a refinery — from
+being folded into its host: true pairs share a name token 91.8% of the time and
+agree on NAICS 94.9%, tenant pairs 38.4% and 47.1%. Requiring either keeps 76.0%
+of the recoverable pairs at 97.1% precision, against 77.1% at 95.0% with no
+corroboration.
+
+On the September 2026 file this folds 188,835 registry records onto another over
+140,323 sites, and takes the share of GHGRP registry records sharing an `FRS_ID`
+with NEI from 36.5% to 52.5%, and with TRI from 27.7% to 33.8%. The surviving
+identifier is always a real FRS registry record — the one of the group carrying
+the most program registrations, ties broken by the lowest identifier so a
+rebuild repeats. The same fold is applied to `FRS_NAICSforStEWI`. Set
+`colocation: enabled: false` in `facilitymatcher/config.yaml` for the bridge
+alone.
+
 ## Combined Inventories
 
 `stewicombo` module combines inventory data from within and across selected inventories by matching facilities in the [Facility Registry Service](https://www.epa.gov/frs) and
