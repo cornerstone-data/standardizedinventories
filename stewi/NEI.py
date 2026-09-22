@@ -18,7 +18,7 @@ Option:
     B - for downloading national totals for validation
 
 Year:
-    2011-2022
+    2011-2023
 """
 
 import argparse
@@ -304,4 +304,4 @@ def main(**kwargs):
 
 
 if __name__ == '__main__':
-    main(Year=range(2011, 2023), Option='B')
+    main(Year=range(2011, 2024), Option='B')

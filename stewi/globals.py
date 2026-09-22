@@ -74,7 +74,7 @@ STEWI_DATA_VINTAGES = {
     'DMR': [x for x in range(2011, 2024, 1)],
     'GHGRP': [x for x in range(2011, 2025, 1)],
     'eGRID': [2014, 2016, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
-    'NEI': [x for x in range(2011, 2023, 1)],
+    'NEI': [x for x in range(2011, 2024, 1)],
     'RCRAInfo': [x for x in range(2011, 2024, 2)],
     'TRI': [x for x in range(2011, 2024, 1)],
 }

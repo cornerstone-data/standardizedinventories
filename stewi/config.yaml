@@ -119,6 +119,20 @@ databases:
             - 'sppd_rtr_31302.parquet'
             - 'sppd_rtr_31303.parquet'
         file_version: 'v1'
+    '2023':
+        file_name:
+            - 'nei_point_2023_region_01.parquet'
+            - 'nei_point_2023_region_02.parquet'
+            - 'nei_point_2023_region_03.parquet'
+            - 'nei_point_2023_region_04.parquet'
+            - 'nei_point_2023_region_05.parquet'
+            - 'nei_point_2023_region_06.parquet'
+            - 'nei_point_2023_region_07.parquet'
+            - 'nei_point_2023_region_08.parquet'
+            - 'nei_point_2023_region_09.parquet'
+            - 'nei_point_2023_region_10.parquet'
+            - 'nei_point_2023_region_999.parquet'
+        file_version: 'v1'
     national_url: 'https://gaftp.epa.gov/air/nei/nei_facility_summaries/__year___NEI_Facility_summary.zip'
     # ^ url validation file for 2012+
     national_version:
