@@ -89,6 +89,11 @@ def standardize_output(year, source='Point'):
         log.info(f'reading NEI data from {filename}')
         nei = pd.concat([nei, read_data(year, filename)])
         log.debug(f'{str(len(nei))} records')
+    # Parquet sources may store numerics as strings (e.g. OAR text dumps).
+    for col in ('FlowAmount', 'ReliabilityScore', 'StackHeight',
+                'Latitude', 'Longitude'):
+        if col in nei.columns:
+            nei[col] = pd.to_numeric(nei[col], errors='coerce')
     # convert TON to KG
     nei['FlowAmount'] = nei['FlowAmount'] * USton_kg
 
