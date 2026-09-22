@@ -3,10 +3,15 @@ This script gets FRS data in the form of the FRS combined national files
 It uses the bridges in the 'NATIONAL_ENVIRONMENTAL_INTEREST_FILE.CSV'
 It writes facility matching file for StEWI
 (github.com/usepa/standardizedinventories) inventories
+
+Registry records that describe one physical site are folded together first,
+using the facility attributes in 'NATIONAL_FACILITY_FILE.CSV' - see
+facilitymatcher.colocation.
 """
 
 import pandas as pd
 
+import facilitymatcher.colocation as colo
 import facilitymatcher.globals as fmg
 
 def write_facility_matches():
@@ -16,6 +21,13 @@ def write_facility_matches():
 
     # Limit to EPA programs of interest for StEWI
     stewi_bridges = fmg.filter_by_program_list(FRS_Bridges, stewi_programs)
+
+    # One site can hold more than one FRS registry record, which leaves the
+    # programs registered under each of them unmatched. Fold those onto one
+    # registry record before anything reads FRS_ID as an identifier for a site.
+    canonical = fmg.get_canonical_registry_map(stewi_bridges)
+    stewi_bridges = colo.apply_canonical_map(stewi_bridges, canonical)
+    FRS_Bridges = colo.apply_canonical_map(FRS_Bridges, canonical)
 
     # Separate out eGRID and EIA-860 matches to identify EIA matches to
     # add to eGRID set
@@ -49,12 +61,12 @@ def write_facility_matches():
     # Add in manual matches
     stewi_bridges = fmg.add_manual_matches(stewi_bridges)
 
-    # Add in smart matching here
-
     # Write matches to bridge
-    file = fmg.FRS_config['FRS_bridge_file']
+    sources = [fmg.FRS_config['FRS_bridge_file']]
+    if canonical:
+        sources.append(fmg.FRS_config['FRS_facility_file'])
     fmg.store_fm_file(stewi_bridges, 'FacilityMatchList_forStEWI',
-                       sources=[file])
+                       sources=sources)
 
 
 if __name__ == '__main__':

@@ -2,8 +2,10 @@ databases:
   FRS:
     url: https://ordsext.epa.gov/FLA/www3/state_files/national_combined.zip
     # link to url: https://www.epa.gov/frs/epa-state-combined-csv-download-files
+    archive_file_name: 'national_combined.zip'
     FRS_bridge_file: 'NATIONAL_ENVIRONMENTAL_INTEREST_FILE.CSV'
     FRS_NAICS_file: 'NATIONAL_NAICS_FILE.CSV'
+    FRS_facility_file: 'NATIONAL_FACILITY_FILE.CSV'
     program_dictionary:
         NEI: 'EIS'
         TRI: 'TRIS'
@@ -11,3 +13,11 @@ databases:
         GHGRP: 'E-GGRT'
         RCRAInfo: 'RCRAINFO'
         DMR: 'NPDES'
+    # One site can hold more than one FRS registry record, which leaves the
+    # programs registered under each of them unmatched. See colocation.py.
+    colocation:
+        enabled: true
+        address_max_km: 5
+        name_max_km: 1
+        max_block_size: 40
+        max_cluster_size: 12
