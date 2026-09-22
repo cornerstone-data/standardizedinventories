@@ -319,7 +319,8 @@ class _Union:
 
 
 def canonical_registry_map(bridges, facilities, naics=None, programs=None,
-                           max_cluster_size=12, **rule_settings):
+                           extra_pairs=None, max_cluster_size=12,
+                           **rule_settings):
     """Map each duplicated FRS registry ID onto the record its site folds onto.
 
     The surviving record is always a real FRS registry record - the one of the
@@ -331,6 +332,9 @@ def canonical_registry_map(bridges, facilities, naics=None, programs=None,
     :param facilities: df of the FRS national facility file
     :param naics: df of the FRS NAICS file, or None
     :param programs: df of the FRS national program file, or None
+    :param extra_pairs: iterable of (registry, registry) pairs established some
+        other way - see :mod:`facilitymatcher.quantity`. They join the same
+        union, so the size guards apply to them too
     :param max_cluster_size: int, a group of more than this many registry
         records is an industrial park or a campus rather than one site, and is
         left alone
@@ -351,6 +355,9 @@ def canonical_registry_map(bridges, facilities, naics=None, programs=None,
     union = _Union()
     for left, right in zip(pairs['left'], pairs['right']):
         union.union(left, right)
+    for left, right in (extra_pairs or ()):
+        if left in of_interest and right in of_interest:
+            union.union(left, right)
 
     weight = bridges.groupby('REGISTRY_ID').size().to_dict()
     mapping, oversized = {}, 0

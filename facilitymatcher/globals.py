@@ -14,6 +14,7 @@ from pathlib import Path
 
 from stewi.globals import log, set_stewi_meta, source_metadata, config
 import facilitymatcher.colocation as colocation
+import facilitymatcher.quantity as quantity
 import facilitymatcher.WriteFacilityMatchesforStEWI as write_fm
 import facilitymatcher.WriteFRSNAICSforStEWI as write_naics
 from esupy.processed_data_mgmt import Paths, load_preprocessed_output,\
@@ -37,6 +38,7 @@ inventory_to_FRS_pgm_acronymn = FRS_config['program_dictionary']
 stewi_inventories = list(inventory_to_FRS_pgm_acronymn.keys())
 
 _canonical_registry_map = None
+_quantity_comparisons = []
 
 
 def set_facilitymatcher_meta(file_name, category):
@@ -261,9 +263,29 @@ def get_canonical_registry_map(bridges=None):
         programs = filter_by_program_list(
             download_and_read_frs_file('FRS_program_file'),
             get_programs_for_inventory_list(stewi_inventories))
+        extra = quantity_registry_pairs(bridges)
         _canonical_registry_map = colocation.canonical_registry_map(
-            bridges, facilities, naics, programs, **settings)
+            bridges, facilities, naics, programs, extra_pairs=extra, **settings)
     return _canonical_registry_map
+
+
+def quantity_registry_pairs(bridges):
+    """Registry pairs two inventories agree on a quantity for, or an empty set.
+
+    The one rule in facilitymatcher that reads the inventories rather than the
+    FRS files. See :mod:`facilitymatcher.quantity` for why a quantity is safe
+    to use only alongside proximity, and what is recorded about which
+    comparisons ran.
+    """
+    settings = quantity.quantity_config(FRS_config)
+    if settings is None:
+        log.info('quantity matching is switched off')
+        return set()
+    pairs, ran = quantity.quantity_registry_pairs(
+        bridges, settings, inventory_to_FRS_pgm_acronymn)
+    global _quantity_comparisons
+    _quantity_comparisons = ran
+    return pairs
 
 
 def write_fm_metadata(file_name, metadata_dict, category=''):

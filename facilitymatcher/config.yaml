@@ -22,3 +22,15 @@ databases:
         name_max_km: 1
         max_block_size: 40
         max_cluster_size: 12
+    # Two programs reporting the same quantity at the same place are the same
+    # facility. Needs the inventories themselves, so a comparison whose
+    # inventory-years are not on hand is skipped. See quantity.py.
+    quantity_matching:
+        enabled: true
+        tolerance: 0.005
+        max_km: 10
+        min_quantity: 25000000
+        comparisons:
+          - inventories: ['GHGRP', 'NEI']
+            flow: 'Carbon Dioxide'
+            years: [2021, 2022]
