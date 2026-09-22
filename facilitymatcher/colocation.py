@@ -132,21 +132,33 @@ def kilometres_between(lat1, lon1, lat2, lon2):
     return 2 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(haversine.clip(0, 1)))
 
 
-def prepare_facilities(facilities, naics=None):
+def prepare_records(records, naics=None):
     """Add the comparison keys the rules are expressed in.
 
-    :param facilities: df of the FRS national facility file
+    Takes either of the two FRS files that describe where a facility is. They
+    describe it differently and both are used - see
+    :func:`colocated_registry_pairs`.
+
+    :param records: df of the FRS national facility file (one row per registry
+        record, with coordinates) or of the national program file (one row per
+        program registration, with the address that program itself reported
+        and no coordinates)
     :param naics: df of the FRS NAICS file, used for the NAICS
         corroboration; None leaves it out and the name token test carries
         the rule
     """
-    out = facilities.copy()
+    out = records.copy()
     out['name_key'] = normalize_name(out['PRIMARY_NAME'])
     out['addr_key'] = normalize_address(out['LOCATION_ADDRESS'])
     out['tokens'] = out['name_key'].map(name_tokens)
-    out['lat'] = pd.to_numeric(out['LATITUDE83'], errors='coerce')
-    out['lon'] = pd.to_numeric(out['LONGITUDE83'], errors='coerce')
-    out.loc[(out['lat'] == 0) & (out['lon'] == 0), ['lat', 'lon']] = None
+    out['zip5'] = (out['POSTAL_CODE'].fillna('').astype(str)
+                   .str.replace(r'\D', '', regex=True).str[:5])
+    # The program file carries no coordinates at all, so they are optional
+    for axis, column in (('lat', 'LATITUDE83'), ('lon', 'LONGITUDE83')):
+        out[axis] = (pd.to_numeric(out[column], errors='coerce')
+                     if column in out.columns else np.nan)
+    at_null_island = (out['lat'] == 0) & (out['lon'] == 0)
+    out.loc[at_null_island, ['lat', 'lon']] = np.nan
     out['sector'] = ''
     if naics is not None:
         primary = naics.sort_values(['PRIMARY_INDICATOR', 'NAICS_CODE'])
@@ -155,6 +167,7 @@ def prepare_facilities(facilities, naics=None):
         out['sector'] = (out['REGISTRY_ID'].map(codes)
                          .fillna('').astype(str).str[:NAICS_DIGITS])
     return out
+
 
 
 def _pairs_in_blocks(prepared, key, max_block_size=MAX_BLOCK_SIZE):
@@ -172,12 +185,22 @@ def _pairs_in_blocks(prepared, key, max_block_size=MAX_BLOCK_SIZE):
              .transform('size'))
     dropped = block[sizes > max_block_size]
     if not dropped.empty:
-        log.info('%s registry records sit on a %s shared by more than %s '
-                 'records in one state and are left alone',
+        log.info('%s records sit on a %s shared by more than %s records '
+                 'in one state and are left alone',
                  f'{len(dropped):,}', key, max_block_size)
     block = block[(sizes > 1) & (sizes <= max_block_size)]
     pairs = block.merge(block, on=['STATE_CODE', key], suffixes=('_a', '_b'))
     return pairs[pairs['REGISTRY_ID_a'] < pairs['REGISTRY_ID_b']]
+
+
+def _same_postcode(pairs):
+    """Pairs whose postcodes agree, or where one of them has none.
+
+    One state can hold the same street address in two towns. The postcode
+    separates them wherever it is reported, which is nearly always.
+    """
+    return pairs[(pairs['zip5_a'] == '') | (pairs['zip5_b'] == '')
+                 | (pairs['zip5_a'] == pairs['zip5_b'])]
 
 
 def _within(pairs, max_km, required=False):
@@ -209,37 +232,54 @@ def _corroborated(pairs):
     return pairs[pd.Series(shares_token, index=pairs.index) | shares_sector]
 
 
-def colocated_registry_pairs(facilities, naics=None, address_max_km=5,
-                             name_max_km=1, max_block_size=MAX_BLOCK_SIZE):
+def colocated_registry_pairs(facilities, naics=None, programs=None,
+                             address_max_km=5, name_max_km=1,
+                             max_block_size=MAX_BLOCK_SIZE):
     """Return pairs of registry IDs that describe one physical site.
 
-    Two rules, unioned:
+    Three rules, unioned. Each of them requires the same state and a postcode
+    that agrees wherever both records carry one.
 
     ``address``
-        same state and street address, coordinates within *address_max_km*
-        where both have them, and either a shared name token or the same NAICS
-        prefix. The address is the strongest signal and the corroboration is
-        what keeps tenants at a host site apart.
+        same street address in the national **facility** file, coordinates
+        within *address_max_km* where both have them, and either a shared name
+        token or the same NAICS prefix. The address is the strongest signal,
+        and the corroboration is what keeps a tenant at a host site from being
+        folded into its host.
     ``name``
-        same state and facility name, coordinates present on both sides and
-        within *name_max_km*. A name repeated exactly within a kilometre does
-        not need further corroboration; a name repeated somewhere in a state
-        with no coordinates to place it is not evidence of anything, so this
-        rule does not admit a missing coordinate the way the address rule
-        does.
+        same facility name in the national facility file, coordinates present
+        on both sides and within *name_max_km*. A name repeated exactly within
+        a kilometre needs no further corroboration; a name repeated somewhere
+        in a state with no coordinates to place it is not evidence of
+        anything, so this rule does not admit a missing coordinate the way the
+        address rule does.
+    ``program address``
+        same street address in the national **program** file, corroborated the
+        way the address rule is. The facility file holds FRS's own single
+        curated description of a registry record; the program file holds what
+        **each program itself reported**. That distinction is the whole point:
+        the two sides of a missed match differ in what the programs reported,
+        and FRS's curated record shows only one of them. The program file has
+        no coordinates, so the postcode is the only locator it gets.
 
     :param facilities: df of the FRS national facility file, restricted to the
         registry records of interest
     :param naics: df of the FRS NAICS file, or None
+    :param programs: df of the FRS national program file, or None
     :return: df with columns 'left', 'right', 'basis'
     """
-    prepared = prepare_facilities(facilities, naics)
+    from_facilities = prepare_records(facilities, naics)
+    rules = [('address', from_facilities, 'addr_key', address_max_km, True),
+             ('name', from_facilities, 'name_key', name_max_km, False)]
+    if programs is not None:
+        rules.append(('program address', prepare_records(programs, naics),
+                      'addr_key', None, True))
     found = []
-    for basis, key, max_km, corroborate in (
-            ('address', 'addr_key', address_max_km, True),
-            ('name', 'name_key', name_max_km, False)):
+    for basis, prepared, key, max_km, corroborate in rules:
         pairs = _pairs_in_blocks(prepared, key, max_block_size)
-        pairs = _within(pairs, max_km, required=not corroborate)
+        pairs = _same_postcode(pairs)
+        if max_km is not None:
+            pairs = _within(pairs, max_km, required=not corroborate)
         if corroborate:
             pairs = _corroborated(pairs)
         log.info('%s registry pairs on the %s rule', f'{len(pairs):,}', basis)
@@ -278,7 +318,7 @@ class _Union:
                 if len(members) > 1}
 
 
-def canonical_registry_map(bridges, facilities, naics=None,
+def canonical_registry_map(bridges, facilities, naics=None, programs=None,
                            max_cluster_size=12, **rule_settings):
     """Map each duplicated FRS registry ID onto the record its site folds onto.
 
@@ -290,6 +330,7 @@ def canonical_registry_map(bridges, facilities, naics=None,
         interest, with columns 'REGISTRY_ID' and 'PGM_SYS_ACRNM'
     :param facilities: df of the FRS national facility file
     :param naics: df of the FRS NAICS file, or None
+    :param programs: df of the FRS national program file, or None
     :param max_cluster_size: int, a group of more than this many registry
         records is an industrial park or a campus rather than one site, and is
         left alone
@@ -300,10 +341,13 @@ def canonical_registry_map(bridges, facilities, naics=None,
     facilities = facilities[facilities['REGISTRY_ID'].isin(of_interest)]
     if naics is not None:
         naics = naics[naics['REGISTRY_ID'].isin(of_interest)]
+    if programs is not None:
+        programs = programs[programs['REGISTRY_ID'].isin(of_interest)]
     log.info('resolving colocated registry records over %s registry records '
              'carrying a StEWI program', f'{len(facilities):,}')
 
-    pairs = colocated_registry_pairs(facilities, naics, **rule_settings)
+    pairs = colocated_registry_pairs(facilities, naics, programs,
+                                     **rule_settings)
     union = _Union()
     for left, right in zip(pairs['left'], pairs['right']):
         union.union(left, right)

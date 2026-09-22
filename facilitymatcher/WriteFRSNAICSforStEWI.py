@@ -36,6 +36,7 @@ def write_NAICS_matches():
     sources = [fmg.FRS_config['FRS_NAICS_file']]
     if fmg.get_canonical_registry_map():
         sources.append(fmg.FRS_config['FRS_facility_file'])
+        sources.append(fmg.FRS_config['FRS_program_file'])
     fmg.store_fm_file(stewi_NAICS, 'FRS_NAICSforStEWI', sources=sources)
 
 

@@ -12,11 +12,21 @@ import pytest
 import facilitymatcher.colocation as colo
 
 
-def facility(registry, name, address, state='TX', lat=29.7, lon=-95.3):
+def facility(registry, name, address, state='TX', lat=29.7, lon=-95.3,
+             zipcode='77002'):
     return {'REGISTRY_ID': registry, 'PRIMARY_NAME': name,
             'LOCATION_ADDRESS': address, 'CITY_NAME': 'HOUSTON',
-            'STATE_CODE': state, 'POSTAL_CODE': '77002',
+            'STATE_CODE': state, 'POSTAL_CODE': zipcode,
             'LATITUDE83': lat, 'LONGITUDE83': lon}
+
+
+def program(registry, acronym, name, address, state='TX',
+            zipcode='77002'):
+    """A row of the national program file: no coordinates, one per registration."""
+    return {'REGISTRY_ID': registry, 'PGM_SYS_ACRNM': acronym,
+            'PGM_SYS_ID': f'{acronym}-{registry}', 'PRIMARY_NAME': name,
+            'LOCATION_ADDRESS': address, 'CITY_NAME': 'HOUSTON',
+            'STATE_CODE': state, 'POSTAL_CODE': zipcode}
 
 
 def frame(*rows):
@@ -187,3 +197,60 @@ def test_apply_canonical_map_rewrites_only_what_moved():
 ])
 def test_colocation_config_reads_the_switch(settings, expected):
     assert colo.colocation_config({'colocation': settings}) == expected
+
+
+def test_the_program_file_finds_what_the_curated_record_hides():
+    """FRS holds one curated address per registry; each program reported its own.
+
+    The failure this exists for: two registry records whose curated addresses
+    were normalised apart, where the programs both reported the same street.
+    """
+    facilities = frame(
+        facility('1', 'Gulf Refining', 'Refinery Road'),
+        facility('2', 'Gulf Refining Terminal', 'State Highway 12'))
+    assert colo.colocated_registry_pairs(facilities).empty
+
+    programs = frame(
+        program('1', 'E-GGRT', 'Gulf Refining', '1 Refinery Rd'),
+        program('2', 'EIS', 'Gulf Refining Terminal', '1 REFINERY ROAD'))
+    pairs = colo.colocated_registry_pairs(facilities, programs=programs)
+    assert pairs['basis'].tolist() == ['program address']
+
+
+def test_the_program_rule_keeps_the_tenant_out_too():
+    facilities = frame(facility('1', 'Alpha', 'A St'),
+                       facility('2', 'Beta', 'B St'))
+    programs = frame(
+        program('1', 'E-GGRT', 'US Steel Gary Works', '1 N Broadway'),
+        program('2', 'EIS', 'Fritz Enterprises', '1 North Broadway'))
+    assert colo.colocated_registry_pairs(facilities, programs=programs).empty
+
+
+def test_the_same_address_in_two_postcodes_is_not_one_site():
+    """What stands in for coordinates on the program file, which has none."""
+    programs = frame(
+        program('1', 'E-GGRT', 'Acme Plant', '100 Main St', zipcode='77002'),
+        program('2', 'EIS', 'Acme Plant', '100 MAIN STREET', zipcode='75201'))
+    facilities = frame(facility('1', 'Alpha', 'A St'),
+                       facility('2', 'Beta', 'B St'))
+    assert colo.colocated_registry_pairs(facilities, programs=programs).empty
+
+
+def test_a_missing_postcode_is_not_held_against_a_pair():
+    programs = frame(
+        program('1', 'E-GGRT', 'Acme Plant', '100 Main St', zipcode='77002'),
+        program('2', 'EIS', 'Acme Plant', '100 MAIN STREET', zipcode=None))
+    facilities = frame(facility('1', 'Alpha', 'A St'),
+                       facility('2', 'Beta', 'B St'))
+    assert len(colo.colocated_registry_pairs(facilities,
+                                             programs=programs)) == 1
+
+
+def test_the_program_file_needs_no_coordinates():
+    programs = frame(
+        program('1', 'E-GGRT', 'Gulf Refining', '1 Refinery Rd'),
+        program('2', 'EIS', 'Gulf Refining', '1 REFINERY ROAD'))
+    assert 'LATITUDE83' not in programs
+    assert len(colo.colocated_registry_pairs(
+        frame(facility('1', 'A', 'A St'), facility('2', 'B', 'B St')),
+        programs=programs)) == 1

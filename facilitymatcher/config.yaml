@@ -6,6 +6,7 @@ databases:
     FRS_bridge_file: 'NATIONAL_ENVIRONMENTAL_INTEREST_FILE.CSV'
     FRS_NAICS_file: 'NATIONAL_NAICS_FILE.CSV'
     FRS_facility_file: 'NATIONAL_FACILITY_FILE.CSV'
+    FRS_program_file: 'NATIONAL_PROGRAM_FILE.CSV'
     program_dictionary:
         NEI: 'EIS'
         TRI: 'TRIS'

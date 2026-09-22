@@ -65,6 +65,7 @@ def write_facility_matches():
     sources = [fmg.FRS_config['FRS_bridge_file']]
     if canonical:
         sources.append(fmg.FRS_config['FRS_facility_file'])
+        sources.append(fmg.FRS_config['FRS_program_file'])
     fmg.store_fm_file(stewi_bridges, 'FacilityMatchList_forStEWI',
                        sources=sources)
 

@@ -135,8 +135,8 @@ def download_extract_FRS_combined_national(file=None, archive=None):
 def download_and_read_frs_file(filetype):
     """
     Downloads, if necessary, and returns a df of the FRS filetype
-    :param filetype: str, "FRS_bridge_file", "FRS_NAICS_file" or
-        "FRS_facility_file"
+    :param filetype: str, one of "FRS_bridge_file", "FRS_NAICS_file",
+        "FRS_facility_file" or "FRS_program_file"
     """
     file = FRS_config[filetype]
     # Check to see if file exists
@@ -161,6 +161,15 @@ def download_and_read_frs_file(filetype):
                     'POSTAL_CODE': 'str',
                     'LATITUDE83': 'float',
                     'LONGITUDE83': 'float'}
+    elif filetype == 'FRS_program_file':
+        col_dict = {'REGISTRY_ID': 'str',
+                    'PGM_SYS_ACRNM': 'str',
+                    'PGM_SYS_ID': 'str',
+                    'PRIMARY_NAME': 'str',
+                    'LOCATION_ADDRESS': 'str',
+                    'CITY_NAME': 'str',
+                    'STATE_CODE': 'str',
+                    'POSTAL_CODE': 'str'}
     df = read_FRS_file(file, col_dict)
     return df
 
@@ -249,8 +258,11 @@ def get_canonical_registry_map(bridges=None):
                 get_programs_for_inventory_list(stewi_inventories))
         facilities = download_and_read_frs_file('FRS_facility_file')
         naics = download_and_read_frs_file('FRS_NAICS_file')
+        programs = filter_by_program_list(
+            download_and_read_frs_file('FRS_program_file'),
+            get_programs_for_inventory_list(stewi_inventories))
         _canonical_registry_map = colocation.canonical_registry_map(
-            bridges, facilities, naics, **settings)
+            bridges, facilities, naics, programs, **settings)
     return _canonical_registry_map
 
 
