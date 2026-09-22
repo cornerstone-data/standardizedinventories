@@ -18,7 +18,7 @@ Option:
     B - for downloading national totals for validation
 
 Year:
-    2011-2022
+    2011-2023
 """
 
 import argparse
@@ -28,13 +28,13 @@ import zipfile
 import numpy as np
 import pandas as pd
 
-from esupy.processed_data_mgmt import download_from_remote,\
-    read_source_metadata
+from esupy.processed_data_mgmt import read_source_metadata
 from esupy.remote import make_url_request
 from esupy.util import strip_file_extension
 from stewi.globals import DATA_PATH, write_metadata, USton_kg, lb_kg,\
     log, store_inventory, config, assign_secondary_context,\
     paths, aggregate, get_reliability_table_for_source, set_stewi_meta
+from stewi.gcs_remote import download_prefer_gcs
 from stewi.validate import update_validationsets_sources, validate_inventory,\
     write_validation_result
 from stewi.formats import facility_fields
@@ -84,11 +84,16 @@ def standardize_output(year, source='Point'):
             file_meta = set_stewi_meta(strip_file_extension(file))
             file_meta.category = EXT_DIR
             file_meta.tool = file_meta.tool.lower()
-            download_from_remote(file_meta, paths)
+            download_prefer_gcs(file_meta, paths)
         # concatenate all other files
         log.info(f'reading NEI data from {filename}')
         nei = pd.concat([nei, read_data(year, filename)])
         log.debug(f'{str(len(nei))} records')
+    # Parquet sources may store numerics as strings (e.g. OAR text dumps).
+    for col in ('FlowAmount', 'ReliabilityScore', 'StackHeight',
+                'Latitude', 'Longitude'):
+        if col in nei.columns:
+            nei[col] = pd.to_numeric(nei[col], errors='coerce')
     # convert TON to KG
     nei['FlowAmount'] = nei['FlowAmount'] * USton_kg
 
@@ -304,4 +309,4 @@ def main(**kwargs):
 
 
 if __name__ == '__main__':
-    main(Year=range(2011, 2023), Option='B')
+    main(Year=range(2011, 2024), Option='B')

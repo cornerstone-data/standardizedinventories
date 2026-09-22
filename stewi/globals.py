@@ -19,11 +19,11 @@ import yaml
 
 from esupy.processed_data_mgmt import Paths, FileMeta,\
     load_preprocessed_output, remove_extra_files,\
-    write_df_to_file, write_metadata_to_file,\
-    download_from_remote
+    write_df_to_file, write_metadata_to_file
 from esupy.dqi import get_weighted_average
 from esupy.util import get_git_hash
 import stewi.exceptions
+from stewi.gcs_remote import download_prefer_gcs
 
 
 MODULEPATH = Path(__file__).resolve().parent
@@ -74,7 +74,7 @@ STEWI_DATA_VINTAGES = {
     'DMR': [x for x in range(2011, 2024, 1)],
     'GHGRP': [x for x in range(2011, 2025, 1)],
     'eGRID': [2014, 2016, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
-    'NEI': [x for x in range(2011, 2023, 1)],
+    'NEI': [x for x in range(2011, 2024, 1)],
     'RCRAInfo': [x for x in range(2011, 2024, 2)],
     'TRI': [x for x in range(2011, 2024, 1)],
 }
@@ -299,12 +299,12 @@ def read_inventory(inventory_acronym, year, f, download_if_missing=False):
         log.info(f'{meta.name_data} not found in {method_path}')
         if download_if_missing:
             meta.tool = meta.tool.lower() # lower case for remote access
-            download_from_remote(meta, paths)
+            download_prefer_gcs(meta, paths)
             # download metadata file
             metadata_meta = copy.copy(meta)
             metadata_meta.category = ''
             metadata_meta.ext = 'json'
-            download_from_remote(metadata_meta, paths)
+            download_prefer_gcs(metadata_meta, paths)
         else:
             log.info('requested inventory does not exist in local directory, '
                      'it will be generated...')
