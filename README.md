@@ -39,6 +39,9 @@ The core `stewi` module produces the following output formats:
 [Flow-By-Process](./format%20specs/FlowByProcess.md): Each row represents the total amount of release or waste of a single type in a given year from a specific process within the given facility.
 Applicable only to NEI and GHGRP.
 
+[Activity-By-Process](./format%20specs/ActivityByProcess.md): Each row gives the activity a process's emissions were calculated from - fuel burned, material processed - in the source's own units.
+Applicable only to NEI.
+
 [Facility](./format%20specs/Facility.md): Each row represents a unique facility in a given inventory and given year
 
 [Flow](./format%20specs/Flow.md): Each row represents a unique flow (substance or waste) in a given inventory and given year
@@ -102,6 +105,11 @@ directory. Two differences follow from the source:
 
 NEI data are downloaded from the EPA Emissions Inventory System (EIS) Gateway and hosted on EPA [Data Commons](https://dmap-data-commons-ord.s3.amazonaws.com/index.html?prefix=#stewi/) for access by StEWI.
 For validation, the sum of facility releases are compared against reported totals by flow.
+
+The point exports also carry the parameter each emission was calculated from, which is
+written out as [Activity-By-Process](./format%20specs/ActivityByProcess.md). The 2011 and
+2014 exports use a narrower layout without those fields, so no activity file is written for
+those two years.
 
 ### RCRAInfo
 
