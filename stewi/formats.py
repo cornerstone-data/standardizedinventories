@@ -14,6 +14,7 @@ class StewiFormat(Enum):
     FACILITY = 2
     FLOWBYFACILITY = 3
     FLOWBYPROCESS = 4
+    ACTIVITYBYPROCESS = 5
 
     def __str__(self):
         return self.name.lower()
@@ -91,6 +92,16 @@ flowbyprocess_fields = {'FacilityID': [{'dtype': 'str'}, {'required': True}],
                         'ProcessType': [{'dtype': 'str'}, {'required': False}],
                         }
 
+activitybyprocess_fields = {'FacilityID': [{'dtype': 'str'}, {'required': True}],
+                            'UnitID': [{'dtype': 'str'}, {'required': True}],
+                            'ProcessID': [{'dtype': 'str'}, {'required': True}],
+                            'Process': [{'dtype': 'str'}, {'required': False}],
+                            'ActivityType': [{'dtype': 'str'}, {'required': False}],
+                            'ActivityAmount': [{'dtype': 'float'}, {'required': True}],
+                            'ActivityUnit': [{'dtype': 'str'}, {'required': True}],
+                            'ActivityMaterial': [{'dtype': 'str'}, {'required': False}],
+                            }
+
 flow_fields = {'FlowName': [{'dtype': 'str'}, {'required': True}],
                'FlowID': [{'dtype': 'str'}, {'required': True}],
                'CAS': [{'dtype': 'str'}, {'required': False}],
@@ -100,5 +111,6 @@ flow_fields = {'FlowName': [{'dtype': 'str'}, {'required': True}],
 
 format_dict = {'flowbyfacility': flowbyfacility_fields,
                'flowbyprocess': flowbyprocess_fields,
+               'activitybyprocess': activitybyprocess_fields,
                'facility': facility_fields,
                'flow': flow_fields}

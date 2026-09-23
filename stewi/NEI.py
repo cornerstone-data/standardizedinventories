@@ -37,7 +37,7 @@ from stewi.globals import DATA_PATH, write_metadata, USton_kg, lb_kg,\
 from stewi.gcs_remote import download_prefer_gcs
 from stewi.validate import update_validationsets_sources, validate_inventory,\
     write_validation_result
-from stewi.formats import facility_fields
+from stewi.formats import StewiFormat, facility_fields
 
 
 _config = config()['databases']['NEI']
@@ -116,6 +116,46 @@ def standardize_output(year, source='Point'):
     nei['Source'] = source
     nei = nei.reset_index(drop=True)
     return nei
+
+
+def _as_code(series):
+    """Render an identifier column as a string, dropping a float's trailing '.0'.
+
+    Source years differ in how they type these columns - the 2023 export is all
+    strings, earlier ones store codes as numbers - and a code has to read the
+    same in every year to join across them.
+    """
+    if pd.api.types.is_float_dtype(series):
+        values = series.dropna()
+        if (values % 1 == 0).all():
+            series = series.astype('Int64')
+    return series.astype('string').str.strip()
+
+
+def generate_process_activity(nei):
+    """Return the activity each emission process was calculated from.
+
+    NEI carries the parameter an emission was calculated from - fuel burned,
+    material processed - on every pollutant row of the process it belongs to,
+    with the same value on each. The process is therefore the grain of this
+    table, and one row per process is lossless.
+
+    :param nei: DataFrame of standardized NEI data
+    :returns: DataFrame of activity by process, or None for a data year whose
+        source export does not carry the calculation parameter fields
+    """
+    fields = StewiFormat.ACTIVITYBYPROCESS.subset_fields(nei)
+    if 'ActivityAmount' not in fields:
+        return None
+    activity = nei[fields].copy()
+    # OAR text dumps store the amount as a string
+    activity['ActivityAmount'] = pd.to_numeric(activity['ActivityAmount'],
+                                               errors='coerce')
+    activity = activity[activity['ActivityAmount'] > 0]
+    for field, dtype in StewiFormat.ACTIVITYBYPROCESS.field_types().items():
+        if dtype == 'str' and field in activity:
+            activity[field] = _as_code(activity[field])
+    return activity.drop_duplicates().reset_index(drop=True)
 
 
 def generate_national_totals(year):
@@ -291,6 +331,17 @@ def main(**kwargs):
             #2016: 282
             #2014: 279
             #2011: 277
+
+            log.info('generating activity by process output')
+            nei_activity = generate_process_activity(nei_point)
+            if nei_activity is None:
+                log.info(f'NEI {year} source data carries no calculation '
+                         'parameters; skipping activity by process output')
+            else:
+                store_inventory(nei_activity, f'NEI_{year}', 'activitybyprocess')
+                log.debug(len(nei_activity))
+                #2023: 179606
+                #2022: 168365
 
             generate_metadata(year, parameters)
 
