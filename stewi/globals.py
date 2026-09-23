@@ -18,7 +18,7 @@ import numpy as np
 import yaml
 
 from esupy.processed_data_mgmt import Paths, FileMeta,\
-    load_preprocessed_output, remove_extra_files,\
+    find_file, load_preprocessed_output, remove_extra_files,\
     write_df_to_file, write_metadata_to_file
 from esupy.dqi import get_weighted_average
 from esupy.util import get_git_hash
@@ -281,40 +281,113 @@ def store_inventory(df, file_name, f, replace_files=REPLACE_FILES):
         log.error('Failed to save inventory')
 
 
+def _missing_required_names(inventory, f):
+    """Return required field names absent from *inventory* columns."""
+    return set(f.required_fields().keys()) - set(inventory.columns)
+
+
+def _evict_loaded_local(meta):
+    """Delete only the local file ``find_file`` would load for *meta*.
+
+    Preserves other year-scoped hashes (older or alternate versions). Only the
+    schema-invalid file that was just selected is removed so recovery can
+    regenerate without wiping intentional local copies.
+    """
+    path = find_file(meta, paths)
+    if not isinstance(path, Path):
+        return
+    try:
+        path.unlink()
+        log.info(f'removed schema-invalid local file {path}')
+    except OSError as exc:
+        log.warning(f'failed to remove {path}: {exc}')
+
+
+def _reject_if_missing_required(inventory, f, meta):
+    """If required columns are missing, log, evict that local file, return None."""
+    if inventory is None:
+        return None
+    missing = _missing_required_names(inventory, f)
+    if not missing:
+        return inventory
+    log.error(
+        f'{meta.name_data} missing required fields {sorted(missing)}; '
+        f'have {sorted(inventory.columns)}; treating as absent'
+    )
+    _evict_loaded_local(meta)
+    return None
+
+
 def read_inventory(inventory_acronym, year, f, download_if_missing=False):
-    """Return the inventory from local directory. If not found, generate it.
+    """Return a local inventory dataframe, or None if unavailable.
+
+    Load order:
+    1. Local preprocessed file for ``{inventory}_{year}``.
+    2. If missing and ``download_if_missing``: GCS then Data Commons.
+    3. If missing and not ``download_if_missing``: ``generate_inventory``.
+    4. If a loaded file is missing required format columns (wrong category /
+       poison cache): remove that local file only (other hashes kept) and
+       ``generate_inventory`` — never re-enter GCS/Commons in the same call.
+       Recovery runs for both True and False ``download_if_missing``.
+
+    Pure remote miss with ``download_if_missing=True`` still returns None
+    without generating (callers such as bedrock may generate themselves).
 
     :param inventory_acronym: like 'TRI'
     :param year: year as number like 2010
     :param f: object of class StewiFormat
-    :param download_if_missing: bool, if True will attempt to load from
-        remote server prior to generating if file not found locally
+    :param download_if_missing: bool, if True try remotes before returning None
+        on a pure miss; schema-reject recovery always generates locally
     :return: dataframe of stored inventory; if not present returns None
     """
     file_name = f'{inventory_acronym}_{year}'
     meta = set_stewi_meta(file_name, str(f))
-    inventory = load_preprocessed_output(meta, paths)
     method_path = paths.local_path / meta.category
-    if inventory is None:
+    schema_reject = False
+
+    inventory = load_preprocessed_output(meta, paths)
+    if inventory is not None:
+        inventory = _reject_if_missing_required(inventory, f, meta)
+        if inventory is None:
+            schema_reject = True
+
+    if inventory is None and not schema_reject:
         log.info(f'{meta.name_data} not found in {method_path}')
         if download_if_missing:
-            meta.tool = meta.tool.lower() # lower case for remote access
+            meta.tool = meta.tool.lower()  # lower case for remote access
             download_prefer_gcs(meta, paths)
-            # download metadata file
             metadata_meta = copy.copy(meta)
             metadata_meta.category = ''
             metadata_meta.ext = 'json'
             download_prefer_gcs(metadata_meta, paths)
+            inventory = load_preprocessed_output(meta, paths)
+            if inventory is not None:
+                rejected = _reject_if_missing_required(inventory, f, meta)
+                if rejected is None:
+                    schema_reject = True
+                inventory = rejected
         else:
             log.info('requested inventory does not exist in local directory, '
                      'it will be generated...')
             generate_inventory(inventory_acronym, year)
+            inventory = load_preprocessed_output(meta, paths)
+            inventory = _reject_if_missing_required(inventory, f, meta)
+            if inventory is None:
+                log.error('error generating inventory')
+
+    if inventory is None and schema_reject:
+        # Always generate after schema reject; never re-enter GCS/Commons.
+        log.info(
+            f'{meta.name_data} failed schema check; generating from source...'
+        )
+        generate_inventory(inventory_acronym, year)
         inventory = load_preprocessed_output(meta, paths)
+        inventory = _reject_if_missing_required(inventory, f, meta)
         if inventory is None:
-            log.error('error generating inventory')
+            log.error('error generating inventory after schema reject')
+
     if inventory is not None:
         log.info(f'loaded {meta.name_data} from {method_path}')
-        # ensure dtypes
         fields = f.field_types()
         fields = {key: value for key, value in fields.items()
                   if key in list(inventory)}
