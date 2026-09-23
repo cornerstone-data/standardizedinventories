@@ -18,7 +18,7 @@ import numpy as np
 import yaml
 
 from esupy.processed_data_mgmt import Paths, FileMeta,\
-    load_preprocessed_output, remove_extra_files,\
+    find_file, load_preprocessed_output, remove_extra_files,\
     write_df_to_file, write_metadata_to_file
 from esupy.dqi import get_weighted_average
 from esupy.util import get_git_hash
@@ -286,30 +286,25 @@ def _missing_required_names(inventory, f):
     return set(f.required_fields().keys()) - set(inventory.columns)
 
 
-def _evict_versioned_locals(meta):
-    """Delete local parquet files matching year-scoped ``meta.name_data``.
+def _evict_loaded_local(meta):
+    """Delete only the local file ``find_file`` would load for *meta*.
 
-    ``name_data`` is ``{inventory}_{year}`` (e.g. ``eGRID_2024``), not a full
-    versioned stem. Evict every ``name_data_*.parquet`` under the category so a
-    newly generated hash cannot sit beside a schema-bad sibling that
-    ``load_preprocessed_output`` might still prefer.
+    Preserves other year-scoped hashes (older or alternate versions). Only the
+    schema-invalid file that was just selected is removed so recovery can
+    regenerate without wiping intentional local copies.
     """
-    folder = Path(paths.local_path) / (meta.category or '')
-    if not folder.is_dir():
+    path = find_file(meta, paths)
+    if not isinstance(path, Path):
         return
-    prefix = meta.name_data
-    for path in folder.glob(f'{prefix}*.{WRITE_FORMAT}'):
-        if not path.name.startswith(prefix):
-            continue
-        try:
-            path.unlink()
-            log.info(f'removed schema-invalid local file {path}')
-        except OSError as exc:
-            log.warning(f'failed to remove {path}: {exc}')
+    try:
+        path.unlink()
+        log.info(f'removed schema-invalid local file {path}')
+    except OSError as exc:
+        log.warning(f'failed to remove {path}: {exc}')
 
 
 def _reject_if_missing_required(inventory, f, meta):
-    """If required columns are missing, log, evict locals, return None."""
+    """If required columns are missing, log, evict that local file, return None."""
     if inventory is None:
         return None
     missing = _missing_required_names(inventory, f)
@@ -319,7 +314,7 @@ def _reject_if_missing_required(inventory, f, meta):
         f'{meta.name_data} missing required fields {sorted(missing)}; '
         f'have {sorted(inventory.columns)}; treating as absent'
     )
-    _evict_versioned_locals(meta)
+    _evict_loaded_local(meta)
     return None
 
 
@@ -331,9 +326,9 @@ def read_inventory(inventory_acronym, year, f, download_if_missing=False):
     2. If missing and ``download_if_missing``: GCS then Data Commons.
     3. If missing and not ``download_if_missing``: ``generate_inventory``.
     4. If a loaded file is missing required format columns (wrong category /
-       poison cache): evict matching locals and ``generate_inventory`` — never
-       re-enter GCS/Commons in the same call. Recovery runs for both True and
-       False ``download_if_missing``.
+       poison cache): remove that local file only (other hashes kept) and
+       ``generate_inventory`` — never re-enter GCS/Commons in the same call.
+       Recovery runs for both True and False ``download_if_missing``.
 
     Pure remote miss with ``download_if_missing=True`` still returns None
     without generating (callers such as bedrock may generate themselves).

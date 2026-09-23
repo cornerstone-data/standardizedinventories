@@ -6,7 +6,7 @@ import pytest
 from stewi.formats import StewiFormat
 from stewi.globals import (
     WRITE_FORMAT,
-    _evict_versioned_locals,
+    _evict_loaded_local,
     _missing_required_names,
     paths,
     read_inventory,
@@ -54,23 +54,28 @@ def test_missing_required_names_detects_facility_under_fbf():
     assert 'FlowAmount' in missing
 
 
-def test_evict_removes_all_versioned_hashes(stewi_cache):
+def test_evict_removes_only_selected_file(stewi_cache):
     cat = stewi_cache / 'flowbyfacility'
     cat.mkdir()
-    (cat / f'eGRID_2024_v1.2.2_aaaaaaa.{WRITE_FORMAT}').write_bytes(b'bad')
-    (cat / f'eGRID_2024_v1.2.2_bbbbbbb.{WRITE_FORMAT}').write_bytes(b'bad')
-    (cat / f'eGRID_2023_v1.2.1_ccccccc.{WRITE_FORMAT}').write_bytes(b'keep')
+    target = cat / f'eGRID_2024_v1.2.2_bbbbbbb.{WRITE_FORMAT}'
+    other_year = cat / f'eGRID_2023_v1.2.1_ccccccc.{WRITE_FORMAT}'
+    target.write_bytes(b'remove-me')
+    other_year.write_bytes(b'keep')
     meta = set_stewi_meta('eGRID_2024', 'flowbyfacility')
-    _evict_versioned_locals(meta)
+    _evict_loaded_local(meta)
     remaining = sorted(p.name for p in cat.iterdir())
-    assert remaining == [f'eGRID_2023_v1.2.1_ccccccc.{WRITE_FORMAT}']
+    assert remaining == [other_year.name]
 
 
 def test_local_poison_fbf_generates_when_download_false(stewi_cache, monkeypatch):
     cat = stewi_cache / 'flowbyfacility'
     cat.mkdir()
+    good_older = cat / f'eGRID_2024_v1.2.2_goodold.{WRITE_FORMAT}'
     poison = cat / f'eGRID_2024_v1.2.2_deadbeef.{WRITE_FORMAT}'
+    _fbf_shaped().to_parquet(good_older)
     _facility_shaped().to_parquet(poison)
+    good_older.touch()
+    poison.touch()  # newest → selected, then rejected
 
     calls = {'generate': 0, 'gcs': 0}
 
@@ -93,6 +98,7 @@ def test_local_poison_fbf_generates_when_download_false(stewi_cache, monkeypatch
     assert calls['generate'] == 1
     assert calls['gcs'] == 0
     assert not poison.exists()
+    assert good_older.exists()  # schema-valid sibling preserved
 
 
 def test_poison_after_gcs_does_not_reenter_gcs(stewi_cache, monkeypatch):
